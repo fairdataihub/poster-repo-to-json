@@ -36,7 +36,7 @@ def setup_logging(verbose: bool = False):
 def cmd_extract(args):
     """Extract content from posters."""
     extractor = PosterExtractor(
-        use_transformers_ocr=not args.ollama_vision,
+        use_transformers_ocr=getattr(args, 'transformers_vision', False),
     )
     
     input_path = Path(args.input)
@@ -181,7 +181,7 @@ def cmd_pipeline(args):
     
     # Step 2: Extract content
     print("\n[2/3] Extracting poster content...")
-    extractor = PosterExtractor(use_transformers_ocr=not args.ollama_vision)
+    extractor = PosterExtractor(use_transformers_ocr=getattr(args, 'transformers_vision', False))
     
     posters_path = Path(args.posters)
     poster_files = []
@@ -272,9 +272,9 @@ def main():
         help="Maximum files to process",
     )
     extract_parser.add_argument(
-        "--ollama-vision",
+        "--transformers-vision",
         action="store_true",
-        help="Use Ollama for vision OCR instead of Transformers Qwen2.5-VL",
+        help="Use Transformers Qwen2-VL for vision OCR instead of Ollama (requires more GPU memory)",
     )
     extract_parser.set_defaults(func=cmd_extract)
     
@@ -348,9 +348,9 @@ def main():
         help="Maximum posters to process",
     )
     pipeline_parser.add_argument(
-        "--ollama-vision",
+        "--transformers-vision",
         action="store_true",
-        help="Use Ollama for vision OCR instead of Transformers",
+        help="Use Transformers Qwen2-VL for vision OCR (requires more GPU memory)",
     )
     pipeline_parser.set_defaults(func=cmd_pipeline)
     

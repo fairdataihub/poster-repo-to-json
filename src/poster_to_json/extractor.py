@@ -54,15 +54,15 @@ class VisionOCR:
     def __init__(
         self,
         model_name: str = QWEN_VL_MODEL,
-        device: str = "cuda",
+        device: str = "cuda:0",  # Use GPU 0 (RTX 3080) - GPU 1 (RTX 4090) is for Ollama
         load_in_4bit: bool = True,
     ):
         """
         Initialize vision OCR model.
         
         Args:
-            model_name: HuggingFace model name for Qwen2.5-VL
-            device: Device to run on ("cuda" or "cpu")
+            model_name: HuggingFace model name for Qwen2-VL
+            device: Device to run on ("cuda:0", "cuda:1", or "cpu")
             load_in_4bit: Whether to use 4-bit quantization
         """
         self.model_name = model_name
@@ -78,22 +78,29 @@ class VisionOCR:
             return
         
         try:
+            import torch
             from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
             from qwen_vl_utils import process_vision_info
             
-            log(f"Loading Qwen2-VL model: {self.model_name}")
+            # Determine which GPU to use
+            # Check available GPU memory and pick the one with most free memory
+            vision_device = self._select_best_gpu()
+            
+            log(f"Loading Qwen2-VL model: {self.model_name} on {vision_device}")
             
             load_kwargs = {
-                "torch_dtype": "auto",
-                "device_map": "auto" if self.device == "cuda" else None,
+                "torch_dtype": torch.bfloat16,
             }
             
             if self.load_in_4bit:
                 from transformers import BitsAndBytesConfig
                 load_kwargs["quantization_config"] = BitsAndBytesConfig(
                     load_in_4bit=True,
-                    bnb_4bit_compute_dtype="float16",
+                    bnb_4bit_compute_dtype=torch.float16,
                 )
+                load_kwargs["device_map"] = vision_device
+            else:
+                load_kwargs["device_map"] = vision_device
             
             self.model = Qwen2VLForConditionalGeneration.from_pretrained(
                 self.model_name,
@@ -101,13 +108,42 @@ class VisionOCR:
             )
             self.processor = AutoProcessor.from_pretrained(self.model_name)
             self._loaded = True
-            log(f"   ✓ Qwen2-VL loaded")
+            self._device = vision_device
+            log(f"   ✓ Qwen2-VL loaded on {vision_device}")
             
         except ImportError as e:
             raise ImportError(
                 "Transformers dependencies not installed. "
                 "Install with: pip install poster-to-json[transformers]"
             ) from e
+    
+    def _select_best_gpu(self) -> str:
+        """Select GPU with most free memory (avoids Ollama's GPU)."""
+        import torch
+        
+        if not torch.cuda.is_available():
+            return "cpu"
+        
+        num_gpus = torch.cuda.device_count()
+        if num_gpus == 1:
+            return "cuda:0"
+        
+        # Find GPU with most free memory
+        best_gpu = 0
+        best_free = 0
+        
+        for i in range(num_gpus):
+            try:
+                free_mem = torch.cuda.mem_get_info(i)[0]  # Returns (free, total)
+                total_mem = torch.cuda.mem_get_info(i)[1]
+                log(f"   GPU {i}: {free_mem // (1024**3)}GB free of {total_mem // (1024**3)}GB")
+                if free_mem > best_free:
+                    best_free = free_mem
+                    best_gpu = i
+            except Exception:
+                continue
+        
+        return f"cuda:{best_gpu}"
     
     def extract_text(self, image_path: str) -> str:
         """
@@ -273,7 +309,7 @@ OUTPUT VALID JSON ONLY:"""
         self,
         pdfalto_path: Optional[str] = None,
         ollama_model: str = OLLAMA_JSON_MODEL,
-        use_transformers_ocr: bool = True,
+        use_transformers_ocr: bool = False,  # Default to Ollama vision (efficient GPU sharing)
     ):
         """
         Initialize extractor.
@@ -281,7 +317,7 @@ OUTPUT VALID JSON ONLY:"""
         Args:
             pdfalto_path: Path to pdfalto binary
             ollama_model: Ollama model for JSON structuring
-            use_transformers_ocr: Use Qwen2.5-VL Transformers for OCR (vs Ollama)
+            use_transformers_ocr: Use Qwen2-VL Transformers for OCR (vs Ollama qwen2.5vl)
         """
         self.pdfalto_path = pdfalto_path or self._find_pdfalto()
         self.ollama_model = ollama_model
@@ -292,14 +328,33 @@ OUTPUT VALID JSON ONLY:"""
     
     def _find_pdfalto(self) -> Optional[str]:
         """Find pdfalto binary."""
+        # Check environment variable first
         env_path = os.environ.get("PDFALTO_PATH")
         if env_path and os.path.exists(env_path):
+            log(f"   Found pdfalto via PDFALTO_PATH: {env_path}")
             return env_path
         
+        # Check PATH
         path_binary = shutil.which("pdfalto")
         if path_binary:
+            log(f"   Found pdfalto in PATH: {path_binary}")
             return path_binary
         
+        # Check common locations
+        common_paths = [
+            "/usr/local/bin/pdfalto",
+            "/usr/bin/pdfalto",
+            os.path.expanduser("~/pdfalto/pdfalto"),
+            # Docker location
+            "/app/pdfalto/pdfalto",
+        ]
+        
+        for path in common_paths:
+            if os.path.exists(path):
+                log(f"   Found pdfalto at: {path}")
+                return path
+        
+        log("   WARNING: pdfalto not found, will use PyMuPDF fallback")
         return None
     
     def _ensure_ollama_ready(self):
@@ -381,31 +436,59 @@ OUTPUT VALID JSON ONLY:"""
     def extract_text_vision(self, image_path: str) -> str:
         """Extract text from image using vision OCR."""
         if self.use_transformers_ocr:
-            return self._get_vision_ocr().extract_text(image_path)
+            try:
+                return self._get_vision_ocr().extract_text(image_path)
+            except Exception as e:
+                log(f"   Transformers OCR failed ({e}), falling back to Ollama...")
+                return self._extract_text_ollama_vision(image_path)
         else:
-            # Fallback to Ollama (lower quality but no extra deps)
+            # Use Ollama vision (efficient GPU sharing with Llama 3.1)
             return self._extract_text_ollama_vision(image_path)
     
     def _extract_text_ollama_vision(self, image_path: str) -> str:
-        """Extract text using Ollama vision model (fallback)."""
+        """Extract text using Ollama vision model (efficient GPU sharing with Llama 3.1)."""
         prompt = """Transcribe ALL visible text from this scientific poster exactly as written.
-Include all text, headers, captions, and references.
-Output raw text ONLY, no explanations."""
 
-        try:
-            response = ollama.chat(
-                model="qwen2.5-vl:7b",  # Or llava if qwen not available
-                messages=[{
-                    "role": "user",
-                    "content": prompt,
-                    "images": [image_path],
-                }],
-                options={"num_predict": 4000, "temperature": 0},
-            )
-            return response.message.content
-        except Exception as e:
-            logger.error(f"Ollama vision OCR failed: {e}")
-            return ""
+Include:
+- Title and subtitle
+- Author names and affiliations
+- All section headers and content
+- Algorithm/method descriptions
+- Figure and table captions
+- Numbers, statistics, equations
+- References and URLs
+
+Rules:
+- Output the raw text ONLY
+- Do NOT add explanations or interpretations
+- Do NOT translate any text
+- Preserve the original language
+- Include all bullet points and lists"""
+
+        # Try qwen2.5vl first, then fallback to other vision models
+        vision_models = ["qwen2.5vl:7b", "qwen3-vl:4b-instruct-q8_0", "llava"]
+        
+        for model in vision_models:
+            try:
+                log(f"   Using Ollama vision model: {model}")
+                response = ollama.chat(
+                    model=model,
+                    messages=[{
+                        "role": "user",
+                        "content": prompt,
+                        "images": [image_path],
+                    }],
+                    options={"num_predict": 4000, "temperature": 0},
+                )
+                text = response.message.content
+                if text and len(text) > 100:
+                    return text
+            except Exception as e:
+                log(f"   Ollama vision model {model} failed: {e}")
+                continue
+        
+        logger.error("All Ollama vision models failed")
+        return ""
     
     def get_raw_text(self, poster_path: str) -> Tuple[str, str]:
         """
@@ -671,6 +754,11 @@ JSON:"""
         """
         Extract structured JSON from a poster file.
         
+        Handles GPU memory properly by:
+        1. Extracting text (may load Qwen2-VL for images)
+        2. UNLOADING vision model to free GPU memory
+        3. THEN calling Ollama Llama 3.1 for JSON structuring
+        
         Args:
             poster_path: Path to PDF or image file
             
@@ -679,15 +767,21 @@ JSON:"""
         """
         log(f"Extracting: {poster_path}")
         
-        # Get raw text
+        # Get raw text (may use vision model for images)
         raw_text, source = self.get_raw_text(poster_path)
+        
+        # CRITICAL: Unload vision model BEFORE calling Ollama to free GPU memory
+        # This ensures Qwen2-VL and Llama 3.1 don't compete for GPU resources
+        if self._vision_ocr is not None and self._vision_ocr._loaded:
+            log("   Unloading vision model before JSON structuring...")
+            self._vision_ocr.unload()
         
         if not raw_text or source == "unknown":
             return {"error": "Failed to extract text"}
         
         log(f"   Extracted {len(raw_text)} chars using {source}")
         
-        # Structure to JSON
+        # Structure to JSON using Ollama (now has full GPU available)
         result = self.structure_to_json(raw_text)
         
         # Add metadata
