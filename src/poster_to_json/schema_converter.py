@@ -73,7 +73,7 @@ class SchemaConverter:
         if "fundingReferences" not in result or not result["fundingReferences"]:
             result["fundingReferences"] = [{"funderName": "Not specified"}]
         
-        if "conference" not in result:
+        if "conference" not in result or not result["conference"]:
             result["conference"] = {"conferenceName": "Not specified"}
         
         return result
@@ -189,22 +189,25 @@ class SchemaConverter:
         if access_right:
             result["accessRights"] = access_right
         
-        # Conference/Meeting information
+        # Conference/Meeting information (use schema-compliant field names)
         meeting = metadata.get("meeting", {})
         if meeting:
             conference = {}
             if meeting.get("title"):
-                conference["name"] = meeting["title"]
+                conference["conferenceName"] = meeting["title"]
             if meeting.get("acronym"):
-                conference["acronym"] = meeting["acronym"]
+                conference["conferenceAcronym"] = meeting["acronym"]
             if meeting.get("dates"):
-                conference["dates"] = meeting["dates"]
+                # Parse dates into start/end if possible
+                dates_str = meeting["dates"]
+                if " - " in dates_str:
+                    parts = dates_str.split(" - ")
+                    conference["conferenceStartDate"] = parts[0].strip()
+                    conference["conferenceEndDate"] = parts[1].strip()
             if meeting.get("place"):
-                conference["place"] = meeting["place"]
+                conference["conferenceLocation"] = meeting["place"]
             if meeting.get("url"):
-                conference["url"] = meeting["url"]
-            if meeting.get("session"):
-                conference["session"] = meeting["session"]
+                conference["conferenceUri"] = meeting["url"]
             
             if conference:
                 result["conference"] = conference
@@ -230,14 +233,53 @@ class SchemaConverter:
         # Related identifiers
         related = metadata.get("related_identifiers", [])
         if related:
-            result["relatedIdentifiers"] = [
-                {
-                    "relatedIdentifier": r.get("identifier"),
-                    "relatedIdentifierType": r.get("scheme", "").upper(),
-                    "relationType": r.get("relation", "").replace("_", " ").title(),
-                }
-                for r in related if r.get("identifier")
-            ]
+            # Mapping for common relation types to schema-compliant values
+            RELATION_MAP = {
+                "issupplementto": "IsSupplementTo",
+                "is_supplement_to": "IsSupplementTo",
+                "issupplementedby": "IsSupplementedBy",
+                "iscitedby": "IsCitedBy",
+                "cites": "Cites",
+                "isderivedfrom": "IsDerivedFrom",
+                "issourceof": "IsSourceOf",
+                "isversionof": "IsVersionOf",
+                "hasversionof": "HasVersion",
+                "ispartof": "IsPartOf",
+                "haspart": "HasPart",
+                "references": "References",
+                "isreferencedby": "IsReferencedBy",
+                "isdocumentedby": "IsDocumentedBy",
+                "documents": "Documents",
+            }
+            
+            # Mapping for identifier types to schema-compliant values
+            ID_TYPE_MAP = {
+                "arxiv": "arXiv",
+                "doi": "DOI",
+                "url": "URL",
+                "urn": "URN",
+                "isbn": "ISBN",
+                "issn": "ISSN",
+                "pmid": "PMID",
+                "handle": "Handle",
+            }
+            
+            valid_relations = []
+            for r in related:
+                if r.get("identifier"):
+                    rel_type = r.get("relation", "").lower().replace("_", "").replace(" ", "")
+                    schema_rel = RELATION_MAP.get(rel_type, "References")
+                    
+                    scheme = r.get("scheme", "Other").lower()
+                    schema_id_type = ID_TYPE_MAP.get(scheme, "Other")
+                    
+                    valid_relations.append({
+                        "relatedIdentifier": r["identifier"],
+                        "relatedIdentifierType": schema_id_type,
+                        "relationType": schema_rel,
+                    })
+            if valid_relations:
+                result["relatedIdentifiers"] = valid_relations
         
         # File information
         files = record.get("files", [])

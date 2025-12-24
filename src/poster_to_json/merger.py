@@ -104,8 +104,19 @@ class MetadataMerger:
                     if isinstance(pc, dict) and "sections" in pc:
                         valid_sections = []
                         for section in pc["sections"]:
-                            title = section.get("sectionTitle", "").strip()
-                            content = section.get("sectionContent", "").strip()
+                            # Handle both string and list values
+                            title = section.get("sectionTitle", "")
+                            content = section.get("sectionContent", "")
+                            
+                            # Convert lists to strings
+                            if isinstance(title, list):
+                                title = " ".join(str(t) for t in title)
+                            if isinstance(content, list):
+                                content = " ".join(str(c) for c in content)
+                            
+                            title = str(title).strip() if title else ""
+                            content = str(content).strip() if content else ""
+                            
                             if title and content:
                                 valid_sections.append({
                                     "sectionTitle": title,
