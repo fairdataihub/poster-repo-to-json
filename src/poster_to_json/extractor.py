@@ -5,7 +5,7 @@ Poster content extractor - Extracts structured JSON from scientific posters.
 Uses:
 - pdfalto for PDF text extraction
 - PyMuPDF as fallback
-- Qwen2.5-VL (Transformers) for image-based poster OCR
+- Qwen2-VL-7B (Transformers) for image-based poster OCR
 - Llama 3.1 8B (Ollama) for JSON structuring
 
 The extracted JSON conforms to the posters-science schema.
@@ -34,8 +34,8 @@ logger = logging.getLogger(__name__)
 # Ollama model for JSON structuring
 OLLAMA_JSON_MODEL = "llama3.1:8b-instruct-q8_0"
 
-# Transformers model for vision OCR
-QWEN_VL_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
+# Transformers model for vision OCR (Qwen2-VL, not 2.5 which has compatibility issues)
+QWEN_VL_MODEL = "Qwen/Qwen2-VL-7B-Instruct"
 
 
 def log(msg: str):
@@ -46,9 +46,9 @@ def log(msg: str):
 
 class VisionOCR:
     """
-    Vision OCR using Qwen2.5-VL via Transformers.
+    Vision OCR using Qwen2-VL via Transformers.
     
-    This provides higher quality OCR than Ollama's Qwen3-VL 4B.
+    This provides higher quality OCR than Ollama's vision models.
     """
     
     def __init__(
@@ -81,7 +81,7 @@ class VisionOCR:
             from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
             from qwen_vl_utils import process_vision_info
             
-            log(f"Loading Qwen2.5-VL model: {self.model_name}")
+            log(f"Loading Qwen2-VL model: {self.model_name}")
             
             load_kwargs = {
                 "torch_dtype": "auto",
@@ -101,7 +101,7 @@ class VisionOCR:
             )
             self.processor = AutoProcessor.from_pretrained(self.model_name)
             self._loaded = True
-            log(f"   ✓ Qwen2.5-VL loaded")
+            log(f"   ✓ Qwen2-VL loaded")
             
         except ImportError as e:
             raise ImportError(
@@ -214,7 +214,7 @@ Rules:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             
-            log("   ✓ Qwen2.5-VL unloaded")
+            log("   ✓ Qwen2-VL unloaded")
 
 
 class PosterExtractor:
@@ -449,9 +449,17 @@ Output raw text ONLY, no explanations."""
         
         return "", "unknown"
     
+    # Shorter fallback prompt for when primary prompt causes truncation
+    FALLBACK_PROMPT = """Extract JSON from this poster text. Include creators, titles, posterContent with sections.
+Output ONLY valid JSON:
+
+{raw_text}
+
+JSON:"""
+
     def structure_to_json(self, raw_text: str) -> Dict:
         """
-        Structure raw text into JSON using Llama 3.1.
+        Structure raw text into JSON using Llama 3.1 with retry logic.
         
         Args:
             raw_text: Extracted raw text from poster
@@ -461,32 +469,68 @@ Output raw text ONLY, no explanations."""
         """
         self._ensure_ollama_ready()
         
+        # Preprocess to remove problematic characters
+        raw_text = self._preprocess_text(raw_text)
+        
         prompt = self.EXTRACTION_PROMPT.format(raw_text=raw_text)
         
+        # First attempt with standard tokens
+        response = self._call_ollama(prompt, num_predict=18000)
+        result = self._parse_json_response(response)
+        
+        # If truncation/error detected, retry with more tokens
+        if "error" in result or result.get("_truncated"):
+            log("   Truncation detected, retrying with more tokens...")
+            response = self._call_ollama(prompt, num_predict=24000)
+            result = self._parse_json_response(response)
+        
+        # If still failing, try shorter fallback prompt
+        if "error" in result or (result.get("_truncated") and not result.get("posterContent", {}).get("sections")):
+            log("   Still truncated, trying shorter prompt...")
+            fallback_prompt = self.FALLBACK_PROMPT.format(raw_text=raw_text)
+            response = self._call_ollama(fallback_prompt, num_predict=24000)
+            result = self._parse_json_response(response)
+        
+        return result
+    
+    def _call_ollama(self, prompt: str, num_predict: int = 18000) -> str:
+        """Call Ollama and return response text."""
         response = ollama.chat(
             model=self.ollama_model,
             messages=[{"role": "user", "content": prompt}],
             options={
                 "num_ctx": 32768,
-                "num_predict": 18000,
+                "num_predict": num_predict,
                 "temperature": 0,
             },
         )
-        
-        response_text = response.message.content
-        return self._parse_json_response(response_text)
+        return response.message.content
+    
+    def _preprocess_text(self, text: str) -> str:
+        """Preprocess text to reduce JSON quoting issues."""
+        # Replace smart quotes with regular quotes
+        text = text.replace('"', '"').replace('"', '"')
+        text = text.replace(''', "'").replace(''', "'")
+        # Normalize whitespace
+        text = re.sub(r'\s+', ' ', text)
+        return text
     
     def _parse_json_response(self, response: str) -> Dict:
         """Parse JSON from LLM response with error handling."""
         response = response.strip()
         
         # Remove markdown code blocks
-        if response.startswith("```json"):
-            response = response[7:]
-        elif response.startswith("```"):
-            response = response[3:]
-        if response.endswith("```"):
-            response = response[:-3]
+        if "```json" in response:
+            start_marker = response.find("```json")
+            end_marker = response.find("```", start_marker + 7)
+            if end_marker > start_marker:
+                response = response[start_marker + 7:end_marker]
+        elif "```" in response:
+            start_marker = response.find("```")
+            end_marker = response.find("```", start_marker + 3)
+            if end_marker > start_marker:
+                response = response[start_marker + 3:end_marker]
+        
         response = response.strip()
         
         # Find JSON start
@@ -496,7 +540,10 @@ Output raw text ONLY, no explanations."""
         
         json_str = response[start:]
         
-        # Try to parse
+        # Apply Ollama-specific fixes
+        json_str = self._repair_double_quotes(json_str)
+        
+        # Try to parse directly
         try:
             return json.loads(json_str)
         except json.JSONDecodeError:
@@ -506,22 +553,75 @@ Output raw text ONLY, no explanations."""
         json_str = self._repair_json(json_str)
         
         try:
-            return json.loads(json_str)
+            result = json.loads(json_str)
+            result["_truncated"] = True
+            return result
         except json.JSONDecodeError:
-            return {"error": "JSON parse failed", "raw": json_str[:3000]}
+            pass
+        
+        # Extract first complete JSON object
+        extracted = self._extract_first_json_object(json_str)
+        if extracted:
+            try:
+                result = json.loads(extracted)
+                result["_truncated"] = True
+                return result
+            except json.JSONDecodeError:
+                pass
+        
+        return {"error": "JSON parse failed", "raw": json_str[:3000]}
+    
+    def _repair_double_quotes(self, s: str) -> str:
+        """Fix Ollama's pattern where values start with double quotes."""
+        # Pattern: ": "" followed by actual text -> ": "text
+        s = re.sub(r'": ""([^",}\]\n])', r'": "\1', s)
+        return s
+    
+    def _extract_first_json_object(self, s: str) -> Optional[str]:
+        """Extract the first complete JSON object from a string."""
+        depth = 0
+        start = s.find("{")
+        if start == -1:
+            return None
+        
+        in_string = False
+        escape = False
+        
+        for i in range(start, len(s)):
+            c = s[i]
+            if escape:
+                escape = False
+                continue
+            if c == "\\":
+                escape = True
+                continue
+            if c == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    return s[start:i+1]
+        
+        return None
     
     def _repair_json(self, s: str) -> str:
         """Attempt to repair malformed JSON."""
         # Remove trailing commas
         s = re.sub(r",\s*([}\]])", r"\1", s)
         
-        # Fix truncation
+        # Fix truncation - count brackets
         in_string = False
         escape = False
         open_braces = 0
         open_brackets = 0
+        last_complete_pos = 0
         
-        for c in s:
+        for i, c in enumerate(s):
             if escape:
                 escape = False
                 continue
@@ -537,15 +637,32 @@ Output raw text ONLY, no explanations."""
                 open_braces += 1
             elif c == "}":
                 open_braces -= 1
+                if open_braces >= 0 and open_brackets >= 0:
+                    last_complete_pos = i + 1
             elif c == "[":
                 open_brackets += 1
             elif c == "]":
                 open_brackets -= 1
+                if open_braces >= 0 and open_brackets >= 0:
+                    last_complete_pos = i + 1
+        
+        # If we ended inside a string, try to close it
+        if in_string:
+            # Find a reasonable place to truncate - last complete object
+            s = s.rstrip()
+            # Try to close the string
+            s += '"'
+            in_string = False
         
         # Close unclosed brackets/braces
         s = s.rstrip()
         if s.endswith(","):
             s = s[:-1]
+        
+        # Recalculate after string fix
+        open_braces = s.count("{") - s.count("}")
+        open_brackets = s.count("[") - s.count("]")
+        
         s += "]" * max(0, open_brackets) + "}" * max(0, open_braces)
         
         return s

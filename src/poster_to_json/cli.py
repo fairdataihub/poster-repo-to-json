@@ -66,9 +66,16 @@ def cmd_extract(args):
             with open(out_file, "w", encoding="utf-8") as f:
                 json.dump(result, f, indent=2, ensure_ascii=False)
             
+            # Success if we got valid content (even if truncated)
+            has_content = (
+                "posterContent" in result or 
+                "titles" in result or 
+                "creators" in result
+            )
             results.append({
                 "file": str(poster_file),
-                "success": "error" not in result,
+                "success": has_content and "error" not in result,
+                "truncated": result.get("_truncated", False),
                 "output": str(out_file),
             })
             
