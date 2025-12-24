@@ -31,6 +31,53 @@ class SchemaConverter:
         """Initialize converter."""
         pass
     
+    def _ensure_required_fields(self, result: Dict) -> Dict:
+        """Ensure all required fields have at least default values."""
+        # Required by schema
+        if "identifiers" not in result or not result["identifiers"]:
+            result["identifiers"] = [{"identifier": "unknown", "identifierType": "Other"}]
+        
+        if "creators" not in result or not result["creators"]:
+            result["creators"] = [{"name": "Unknown"}]
+        
+        if "titles" not in result or not result["titles"]:
+            result["titles"] = [{"title": "Untitled Poster"}]
+        
+        if "publisher" not in result:
+            result["publisher"] = {"name": "Unknown"}
+        
+        if "publicationYear" not in result:
+            result["publicationYear"] = datetime.now().year
+        
+        if "subjects" not in result or not result["subjects"]:
+            result["subjects"] = [{"subject": "Scientific Poster"}]
+        
+        if "dates" not in result or not result["dates"]:
+            result["dates"] = [{"date": str(datetime.now().year), "dateType": "Issued"}]
+        
+        if "language" not in result:
+            result["language"] = "en"  # Default to English
+        
+        if "types" not in result:
+            result["types"] = {"resourceType": "Scientific Poster", "resourceTypeGeneral": "Image"}
+        
+        if "formats" not in result or not result["formats"]:
+            result["formats"] = ["PDF"]  # Default to PDF
+        
+        if "rightsList" not in result or not result["rightsList"]:
+            result["rightsList"] = [{"rights": "All rights reserved"}]
+        
+        if "descriptions" not in result or not result["descriptions"]:
+            result["descriptions"] = [{"description": "Scientific poster", "descriptionType": "Abstract"}]
+        
+        if "fundingReferences" not in result or not result["fundingReferences"]:
+            result["fundingReferences"] = [{"funderName": "Not specified"}]
+        
+        if "conference" not in result:
+            result["conference"] = {"conferenceName": "Not specified"}
+        
+        return result
+    
     def convert_zenodo(self, record: Dict) -> Dict:
         """
         Convert Zenodo record to posters-science schema.
@@ -204,8 +251,18 @@ class SchemaConverter:
                 }
                 for f in files
             ]
+            # Also set formats from file extensions
+            formats = set()
+            for f in files:
+                if f.get("key"):
+                    ext = Path(f["key"]).suffix.upper().lstrip(".")
+                    if ext:
+                        formats.add(ext)
+            if formats:
+                result["formats"] = list(formats)
         
-        return result
+        # Ensure all required fields
+        return self._ensure_required_fields(result)
     
     def convert_figshare(self, record: Dict) -> Dict:
         """
@@ -348,8 +405,18 @@ class SchemaConverter:
                 }
                 for f in files
             ]
+            # Also set formats from file extensions
+            formats = set()
+            for f in files:
+                if f.get("name"):
+                    ext = Path(f["name"]).suffix.upper().lstrip(".")
+                    if ext:
+                        formats.add(ext)
+            if formats:
+                result["formats"] = list(formats)
         
-        return result
+        # Ensure all required fields
+        return self._ensure_required_fields(result)
     
     def detect_source(self, record: Dict) -> str:
         """

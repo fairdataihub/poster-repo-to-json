@@ -12,6 +12,7 @@ metadata provides bibliographic information.
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -46,6 +47,7 @@ class MetadataMerger:
         "descriptions",
         "subjects",
         "language",
+        "formats",
         "rightsList",
         "accessRights",
         "conference",
@@ -85,7 +87,38 @@ class MetadataMerger:
         # Add extraction fields (these are unique to extracted content)
         for field in self.EXTRACTION_FIELDS:
             if field in extraction and extraction[field]:
-                result[field] = extraction[field]
+                # Filter out empty captions
+                if field in ["imageCaption", "tableCaption"]:
+                    captions = extraction[field]
+                    valid_captions = []
+                    for cap in captions:
+                        # Only keep captions with non-empty values
+                        valid_cap = {k: v for k, v in cap.items() if v and str(v).strip()}
+                        if valid_cap:
+                            valid_captions.append(valid_cap)
+                    if valid_captions:
+                        result[field] = valid_captions
+                elif field == "posterContent":
+                    # Filter out sections with empty content
+                    pc = extraction[field]
+                    if isinstance(pc, dict) and "sections" in pc:
+                        valid_sections = []
+                        for section in pc["sections"]:
+                            title = section.get("sectionTitle", "").strip()
+                            content = section.get("sectionContent", "").strip()
+                            if title and content:
+                                valid_sections.append({
+                                    "sectionTitle": title,
+                                    "sectionContent": content
+                                })
+                        if valid_sections:
+                            result[field] = {"sections": valid_sections}
+                            if pc.get("unstructuredContent"):
+                                result[field]["unstructuredContent"] = pc["unstructuredContent"]
+                    else:
+                        result[field] = pc
+                else:
+                    result[field] = extraction[field]
         
         # Handle creators specially
         if prefer_extraction_creators and "creators" in extraction:
@@ -113,7 +146,7 @@ class MetadataMerger:
                         result["titles"] = []
                     result["titles"].append({
                         "title": ext_title,
-                        "titleType": "ExtractedTitle"
+                        "titleType": "Other"  # Schema-valid type for extracted titles
                     })
         
         # Add extraction metadata
@@ -195,8 +228,18 @@ class MetadataMerger:
         ext_files = {}
         for f in ext_path.glob("*.json"):
             key = f.stem
+            # Remove common suffixes
             for suffix in ["_extracted", "_extraction", ""]:
                 clean_key = key.replace(suffix, "")
+            
+            # Extract repository ID from patterns like:
+            # - zenodo_3905326_ohbm_2020 -> 3905326
+            # - figshare_12345_name -> 12345
+            id_match = re.match(r'^(?:zenodo|figshare)_(\d+)', clean_key)
+            if id_match:
+                record_id = id_match.group(1)
+                ext_files[record_id] = f
+            else:
                 ext_files[clean_key] = f
         
         # Find matches
