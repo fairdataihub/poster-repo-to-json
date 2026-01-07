@@ -149,7 +149,6 @@ The output conforms to the **posters-science schema** (based on DataCite with po
 |-------|---------|--------------|
 | Llama 3.1 8B (Ollama) | JSON structuring | ~10GB VRAM |
 | Qwen2-VL-7B (Transformers) | Vision OCR | ~16GB VRAM |
-| Qwen2-VL-7B 4-bit | Vision OCR (quantized) | ~8GB VRAM |
 
 ## Pipeline Output Structure
 
