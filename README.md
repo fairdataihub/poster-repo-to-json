@@ -1,4 +1,4 @@
-# posters-science-repo-to-json (Beta)
+# posters-repo-to-json (Beta)
 
 > **Part of the Machine-Actionable Scientific Poster Initiative**
 
@@ -12,22 +12,22 @@ Scientific posters contain valuable research findings that are often inaccessibl
 
 ### Pipeline Position
 
-1. **Collect** posters ([posters-science-repo-scraper](https://github.com/fairdataihub/posters-science-repo-scraper))
-2. **Validate** and classify ([posters-science-repo-qc](https://github.com/fairdataihub/posters-science-repo-qc))
+1. **Collect** posters ([poster-repo-scraper](https://github.com/fairdataihub/poster-repo-scraper))
+2. **Validate** and classify ([poster-repo-qc](https://github.com/fairdataihub/poster-repo-qc))
 3. **Extract** to machine-actionable JSON (this package)
 
 ## Installation
 
 ```bash
 # Install from GitHub (basic - Ollama only)
-pip install git+https://github.com/fairdataihub/posters-science-repo-to-json.git
+pip install git+https://github.com/fairdataihub/poster-repo-to-json.git
 
 # Install with Transformers OCR support (Qwen2-VL)
-pip install "poster-to-json[transformers] @ git+https://github.com/fairdataihub/posters-science-repo-to-json.git"
+pip install "poster-to-json[transformers] @ git+https://github.com/fairdataihub/poster-repo-to-json.git"
 
 # Or install locally for development
-git clone https://github.com/fairdataihub/posters-science-repo-to-json.git
-cd posters-science-repo-to-json
+git clone https://github.com/fairdataihub/poster-repo-to-json.git
+cd poster-repo-to-json
 pip install -e ".[transformers]"
 ```
 
@@ -64,7 +64,7 @@ poster-to-json extract --input ./posters --output ./extractions --ollama-vision
 ### Convert Repository Metadata
 
 ```bash
-# Convert Zenodo metadata to posters-science schema
+# Convert Zenodo metadata to machine actionable poster schema
 poster-to-json convert --input ./metadata/zenodo --output ./converted --source zenodo
 
 # Convert Figshare metadata
@@ -112,7 +112,7 @@ complete = merger.merge(converted, result)
 
 ## Output Schema
 
-The output conforms to the **posters-science schema** (based on DataCite with poster-specific extensions):
+The output conforms to the **machine actionable poster schema** (based on DataCite with poster-specific extensions):
 
 ```json
 {
@@ -154,7 +154,7 @@ The output conforms to the **posters-science schema** (based on DataCite with po
 
 ```
 pipeline_output/
-├── 01_converted/           # Repository metadata → posters-science schema
+├── 01_converted/           # Repository metadata → poster schema
 │   ├── zenodo/
 │   └── figshare/
 ├── 02_extractions/         # Extracted poster content
@@ -169,8 +169,8 @@ pipeline_output/
 
 | Package | Purpose |
 |---------|---------|
-| [posters-science-repo-scraper](https://github.com/fairdataihub/posters-science-repo-scraper) | Scrape posters from repositories |
-| [posters-science-repo-qc](https://github.com/fairdataihub/posters-science-repo-qc) | Validate and classify posters |
+| [poster-repo-scraper](https://github.com/fairdataihub/poster-repo-scraper) | Scrape posters from repositories |
+| [posters-repo-qc](https://github.com/fairdataihub/poster-repo-qc) | Validate and classify posters |
 | [machine-actionable-posterextraction-beta](https://github.com/fairdataihub/machine-actionable-posterextraction-beta) | Core extraction API (Docker) |
 
 ## License
@@ -184,7 +184,7 @@ MIT License - See [LICENSE](LICENSE) for details.
   title = {Posters.science JSON Extraction Pipeline},
   author = {FAIRDataIHub},
   year = {2025},
-  url = {https://github.com/fairdataihub/posters-science-repo-to-json},
+  url = {https://github.com/fairdataihub/poster-repo-to-json},
   note = {Beta release - Machine-Actionable Scientific Poster Initiative}
 }
 ```
