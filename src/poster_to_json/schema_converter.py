@@ -10,6 +10,7 @@ Supports:
 Output conforms to the posters-science schema (based on DataCite with poster extensions).
 """
 
+import html
 import json
 import logging
 import re
@@ -21,125 +22,197 @@ from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
+# ISO 639-2/B (3-letter) to ISO 639-1 (2-letter) mapping for common languages
+_LANG3_TO_LANG2 = {
+    "eng": "en", "fra": "fr", "fre": "fr", "deu": "de", "ger": "de",
+    "spa": "es", "ita": "it", "por": "pt", "nld": "nl", "dut": "nl",
+    "rus": "ru", "zho": "zh", "chi": "zh", "jpn": "ja", "kor": "ko",
+    "ara": "ar", "hin": "hi", "pol": "pl", "tur": "tr", "swe": "sv",
+    "nor": "no", "dan": "da", "fin": "fi", "hun": "hu", "ces": "cs",
+    "cze": "cs", "ron": "ro", "rum": "ro", "ell": "el", "gre": "el",
+    "heb": "he", "tha": "th", "vie": "vi", "ind": "id", "ukr": "uk",
+    "cat": "ca", "hrv": "hr", "slk": "sk", "slo": "sk", "bul": "bg",
+    "lit": "lt", "lav": "lv", "est": "et", "slv": "sl", "srp": "sr",
+    "msa": "ms", "may": "ms", "fas": "fa", "per": "fa",
+}
+
+
+def _normalize_language(lang: str) -> str:
+    """Normalize language code to ISO 639-1 (2-letter)."""
+    if not lang:
+        return "en"
+    lang = lang.strip().lower()
+    if len(lang) == 2:
+        return lang
+    if len(lang) == 3:
+        return _LANG3_TO_LANG2.get(lang, lang[:2])
+    # Handle full names
+    name_map = {"english": "en", "german": "de", "french": "fr", "spanish": "es"}
+    return name_map.get(lang, "en")
+
+
+def _clean_html(text: str) -> str:
+    """Remove HTML tags and decode HTML entities."""
+    text = re.sub(r"<[^>]+>", "", text)
+    text = html.unescape(text)
+    return text.strip()
+
+
+def _to_family_given(full_name: str) -> str:
+    """Convert 'Given Family' to 'Family, Given' format if not already."""
+    if not full_name or "," in full_name:
+        return full_name  # Already in "Family, Given" format
+    parts = full_name.strip().split()
+    if len(parts) >= 2:
+        return f"{parts[-1]}, {' '.join(parts[:-1])}"
+    return full_name
+
+
+def _extract_year_from_text(text: str) -> Optional[int]:
+    """Extract a 4-digit year from free-text like '9-10 October, 2023'."""
+    match = re.search(r'\b(19\d{2}|20\d{2})\b', text)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def _clean_title(title: str) -> str:
+    """Clean title: strip file extensions, whitespace."""
+    title = title.strip()
+    # Remove common file extensions from titles (Figshare often uses filenames)
+    title = re.sub(r'\.(pdf|pptx?|png|jpe?g|tiff?)$', '', title, flags=re.IGNORECASE)
+    return title.strip()
+
+
+def load_bundled_schema() -> Dict:
+    """Load the bundled poster_schema.json."""
+    schema_path = Path(__file__).parent / "poster_schema.json"
+    if schema_path.exists():
+        with open(schema_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
 
 class SchemaConverter:
     """Converts repository metadata to posters-science schema."""
-    
+
     SCHEMA_URL = "https://posters.science/schema/v0.1/poster_schema.json"
-    
+
     def __init__(self):
         """Initialize converter."""
-        pass
-    
+        self._schema = None
+
+    @property
+    def schema(self) -> Dict:
+        if self._schema is None:
+            self._schema = load_bundled_schema()
+        return self._schema
+
     def _ensure_required_fields(self, result: Dict) -> Dict:
-        """Ensure all required fields have at least default values."""
-        # Required by schema
+        """Ensure all required fields have at least default values per poster_schema.json."""
         if "identifiers" not in result or not result["identifiers"]:
             result["identifiers"] = [{"identifier": "unknown", "identifierType": "Other"}]
-        
+
         if "creators" not in result or not result["creators"]:
             result["creators"] = [{"name": "Unknown"}]
-        
+
         if "titles" not in result or not result["titles"]:
             result["titles"] = [{"title": "Untitled Poster"}]
-        
+
         if "publisher" not in result:
             result["publisher"] = {"name": "Unknown"}
-        
+
         if "publicationYear" not in result:
             result["publicationYear"] = datetime.now().year
-        
+
         if "subjects" not in result or not result["subjects"]:
             result["subjects"] = [{"subject": "Scientific Poster"}]
-        
+
         if "dates" not in result or not result["dates"]:
             result["dates"] = [{"date": str(datetime.now().year), "dateType": "Issued"}]
-        
+
         if "language" not in result:
-            result["language"] = "en"  # Default to English
-        
+            result["language"] = "en"
+
         if "types" not in result:
             result["types"] = {"resourceType": "Scientific Poster", "resourceTypeGeneral": "Image"}
-        
+
         if "formats" not in result or not result["formats"]:
-            result["formats"] = ["PDF"]  # Default to PDF
-        
+            result["formats"] = ["PDF"]
+
         if "rightsList" not in result or not result["rightsList"]:
             result["rightsList"] = [{"rights": "All rights reserved"}]
-        
+
         if "descriptions" not in result or not result["descriptions"]:
             result["descriptions"] = [{"description": "Scientific poster", "descriptionType": "Abstract"}]
-        
+
         if "fundingReferences" not in result or not result["fundingReferences"]:
             result["fundingReferences"] = [{"funderName": "Not specified"}]
-        
+
+        # Conference: use publicationYear as fallback for conferenceYear
+        pub_year = result.get("publicationYear", datetime.now().year)
         if "conference" not in result or not result["conference"]:
-            result["conference"] = {"conferenceName": "Not specified"}
-        
+            result["conference"] = {"conferenceName": "Not specified", "conferenceYear": pub_year}
+        elif "conferenceYear" not in result["conference"]:
+            result["conference"]["conferenceYear"] = pub_year
+
         return result
-    
+
     def convert_zenodo(self, record: Dict) -> Dict:
-        """
-        Convert Zenodo record to posters-science schema.
-        
-        Args:
-            record: Raw Zenodo record (from API or zenodo.json)
-            
-        Returns:
-            Converted record in posters-science schema
-        """
+        """Convert Zenodo record to posters-science schema."""
         metadata = record.get("metadata", {})
-        
+
         result = {
             "$schema": self.SCHEMA_URL,
         }
-        
+
         # DOI and identifiers
         doi = record.get("doi")
+        identifiers = []
         if doi:
-            result["doi"] = doi
-            result["identifiers"] = [{"identifier": doi, "identifierType": "DOI"}]
-        
-        # Zenodo record ID
+            identifiers.append({"identifier": doi, "identifierType": "DOI"})
+
         zenodo_id = record.get("id")
         if zenodo_id:
-            if "identifiers" not in result:
-                result["identifiers"] = []
-            result["identifiers"].append({
-                "identifier": str(zenodo_id),
-                "identifierType": "Zenodo"
-            })
-        
-        # Creators
+            identifiers.append({"identifier": str(zenodo_id), "identifierType": "Other"})
+
+        if identifiers:
+            result["identifiers"] = identifiers
+
+        # Creators (Zenodo already provides "Family, Given" format)
         creators = []
         for creator in metadata.get("creators", []):
+            name = creator.get("name", "")
             creator_entry = {
-                "name": creator.get("name", ""),
+                "name": name,
                 "nameType": "Personal",
             }
-            
+            # Split "Family, Given" if present
+            if "," in name:
+                parts = name.split(",", 1)
+                creator_entry["familyName"] = parts[0].strip()
+                creator_entry["givenName"] = parts[1].strip()
+
             if creator.get("affiliation"):
                 creator_entry["affiliation"] = [{"name": creator["affiliation"]}]
-            
             if creator.get("orcid"):
                 creator_entry["nameIdentifiers"] = [{
                     "nameIdentifier": creator["orcid"],
                     "nameIdentifierScheme": "ORCID",
                 }]
-            
             creators.append(creator_entry)
-        
+
         if creators:
             result["creators"] = creators
-        
+
         # Title
         title = metadata.get("title")
         if title:
-            result["titles"] = [{"title": title}]
-        
+            result["titles"] = [{"title": _clean_title(title)}]
+
         # Publisher
         result["publisher"] = {"name": "Zenodo"}
-        
+
         # Publication year
         pub_date = metadata.get("publication_date")
         if pub_date:
@@ -149,33 +222,41 @@ class SchemaConverter:
             except (ValueError, TypeError):
                 pass
             result["dates"] = [{"date": pub_date, "dateType": "Issued"}]
-        
+
         # Resource type
         result["types"] = {
             "resourceType": "Scientific Poster",
             "resourceTypeGeneral": "Image"
         }
-        
-        # Description/Abstract
+
+        # Description/Abstract — clean HTML tags AND entities
         description = metadata.get("description")
         if description:
-            # Clean HTML tags
-            clean_desc = re.sub(r"<[^>]+>", "", description)
-            result["descriptions"] = [{
-                "description": clean_desc,
-                "descriptionType": "Abstract"
-            }]
-        
+            clean_desc = _clean_html(description)
+            if clean_desc:
+                result["descriptions"] = [{
+                    "description": clean_desc,
+                    "descriptionType": "Abstract"
+                }]
+
         # Keywords
         keywords = metadata.get("keywords", [])
         if keywords:
-            result["subjects"] = [{"subject": kw} for kw in keywords]
-        
-        # Language
+            seen = set()
+            subjects = []
+            for kw in keywords:
+                key = kw.strip().lower()
+                if key and key not in seen:
+                    seen.add(key)
+                    subjects.append({"subject": kw})
+            if subjects:
+                result["subjects"] = subjects
+
+        # Language — normalize to ISO 639-1
         language = metadata.get("language")
         if language:
-            result["language"] = language
-        
+            result["language"] = _normalize_language(language)
+
         # License
         license_info = metadata.get("license")
         if license_info:
@@ -183,13 +264,8 @@ class SchemaConverter:
                 "rights": license_info.get("id", ""),
                 "rightsIdentifier": license_info.get("id", ""),
             }]
-        
-        # Access rights
-        access_right = metadata.get("access_right")
-        if access_right:
-            result["accessRights"] = access_right
-        
-        # Conference/Meeting information (use schema-compliant field names)
+
+        # Conference/Meeting information
         meeting = metadata.get("meeting", {})
         if meeting:
             conference = {}
@@ -198,42 +274,45 @@ class SchemaConverter:
             if meeting.get("acronym"):
                 conference["conferenceAcronym"] = meeting["acronym"]
             if meeting.get("dates"):
-                # Parse dates into start/end if possible
                 dates_str = meeting["dates"]
+                # Try structured "YYYY-MM-DD - YYYY-MM-DD" first
                 if " - " in dates_str:
                     parts = dates_str.split(" - ")
                     conference["conferenceStartDate"] = parts[0].strip()
                     conference["conferenceEndDate"] = parts[1].strip()
+                # Extract year from any date format ("9-10 October, 2023", etc.)
+                year = _extract_year_from_text(dates_str)
+                if year:
+                    conference["conferenceYear"] = year
             if meeting.get("place"):
                 conference["conferenceLocation"] = meeting["place"]
             if meeting.get("url"):
                 conference["conferenceUri"] = meeting["url"]
-            
+
             if conference:
                 result["conference"] = conference
-        
+
         # Funding/Grants
         grants = metadata.get("grants", [])
         if grants:
             funders = []
             for grant in grants:
                 funder_entry = {}
-                if grant.get("funder", {}).get("name"):
-                    funder_entry["funderName"] = grant["funder"]["name"]
-                if grant.get("title"):
+                funder_name = (grant.get("funder", {}).get("name")
+                               or grant.get("title") or "Not specified")
+                funder_entry["funderName"] = funder_name
+                if grant.get("title") and grant["title"] != funder_name:
                     funder_entry["awardTitle"] = grant["title"]
                 if grant.get("code"):
                     funder_entry["awardNumber"] = grant["code"]
                 if funder_entry:
                     funders.append(funder_entry)
-            
             if funders:
                 result["fundingReferences"] = funders
-        
+
         # Related identifiers
         related = metadata.get("related_identifiers", [])
         if related:
-            # Mapping for common relation types to schema-compliant values
             RELATION_MAP = {
                 "issupplementto": "IsSupplementTo",
                 "is_supplement_to": "IsSupplementTo",
@@ -251,8 +330,7 @@ class SchemaConverter:
                 "isdocumentedby": "IsDocumentedBy",
                 "documents": "Documents",
             }
-            
-            # Mapping for identifier types to schema-compliant values
+
             ID_TYPE_MAP = {
                 "arxiv": "arXiv",
                 "doi": "DOI",
@@ -263,16 +341,14 @@ class SchemaConverter:
                 "pmid": "PMID",
                 "handle": "Handle",
             }
-            
+
             valid_relations = []
             for r in related:
                 if r.get("identifier"):
                     rel_type = r.get("relation", "").lower().replace("_", "").replace(" ", "")
                     schema_rel = RELATION_MAP.get(rel_type, "References")
-                    
                     scheme = r.get("scheme", "Other").lower()
                     schema_id_type = ID_TYPE_MAP.get(scheme, "Other")
-                    
                     valid_relations.append({
                         "relatedIdentifier": r["identifier"],
                         "relatedIdentifierType": schema_id_type,
@@ -280,20 +356,10 @@ class SchemaConverter:
                     })
             if valid_relations:
                 result["relatedIdentifiers"] = valid_relations
-        
-        # File information
+
+        # File formats (extract from files, don't store files themselves)
         files = record.get("files", [])
         if files:
-            result["files"] = [
-                {
-                    "filename": f.get("key"),
-                    "size": f.get("size"),
-                    "checksum": f.get("checksum"),
-                    "downloadUrl": f.get("links", {}).get("self"),
-                }
-                for f in files
-            ]
-            # Also set formats from file extensions
             formats = set()
             for f in files:
                 if f.get("key"):
@@ -302,67 +368,61 @@ class SchemaConverter:
                         formats.add(ext)
             if formats:
                 result["formats"] = list(formats)
-        
-        # Ensure all required fields
+
         return self._ensure_required_fields(result)
-    
+
     def convert_figshare(self, record: Dict) -> Dict:
-        """
-        Convert Figshare record to posters-science schema.
-        
-        Args:
-            record: Raw Figshare record
-            
-        Returns:
-            Converted record in posters-science schema
-        """
+        """Convert Figshare record to posters-science schema."""
         result = {
             "$schema": self.SCHEMA_URL,
         }
-        
+
         # DOI and identifiers
         doi = record.get("doi")
+        identifiers = []
         if doi:
-            result["doi"] = doi
-            result["identifiers"] = [{"identifier": doi, "identifierType": "DOI"}]
-        
-        # Figshare ID
+            identifiers.append({"identifier": doi, "identifierType": "DOI"})
+
         figshare_id = record.get("id")
         if figshare_id:
-            if "identifiers" not in result:
-                result["identifiers"] = []
-            result["identifiers"].append({
-                "identifier": str(figshare_id),
-                "identifierType": "Figshare"
-            })
-        
-        # Creators
+            identifiers.append({"identifier": str(figshare_id), "identifierType": "Other"})
+
+        if identifiers:
+            result["identifiers"] = identifiers
+
+        # Creators — Figshare gives "Given Family", convert to "Family, Given"
         creators = []
         for author in record.get("authors", []):
+            full_name = author.get("full_name", "")
+            name = _to_family_given(full_name)
             creator_entry = {
-                "name": author.get("full_name", ""),
+                "name": name,
                 "nameType": "Personal",
             }
-            
+            # Use structured first/last if available
+            if author.get("last_name"):
+                creator_entry["familyName"] = author["last_name"]
+            if author.get("first_name"):
+                creator_entry["givenName"] = author["first_name"]
+
             if author.get("orcid_id"):
                 creator_entry["nameIdentifiers"] = [{
                     "nameIdentifier": author["orcid_id"],
                     "nameIdentifierScheme": "ORCID",
                 }]
-            
             creators.append(creator_entry)
-        
+
         if creators:
             result["creators"] = creators
-        
-        # Title
+
+        # Title — clean file extensions
         title = record.get("title")
         if title:
-            result["titles"] = [{"title": title}]
-        
+            result["titles"] = [{"title": _clean_title(title)}]
+
         # Publisher
         result["publisher"] = {"name": "Figshare"}
-        
+
         # Publication year
         pub_date = record.get("published_date")
         if pub_date:
@@ -372,82 +432,80 @@ class SchemaConverter:
             except (ValueError, TypeError):
                 pass
             result["dates"] = [{"date": pub_date, "dateType": "Issued"}]
-        
+
         # Resource type
         result["types"] = {
             "resourceType": "Scientific Poster",
             "resourceTypeGeneral": "Image"
         }
-        
-        # Description
+
+        # Description — clean HTML
         description = record.get("description")
         if description:
-            clean_desc = re.sub(r"<[^>]+>", "", description)
-            result["descriptions"] = [{
-                "description": clean_desc,
-                "descriptionType": "Abstract"
-            }]
-        
-        # Tags/Keywords
+            clean_desc = _clean_html(description)
+            if clean_desc:
+                result["descriptions"] = [{
+                    "description": clean_desc,
+                    "descriptionType": "Abstract"
+                }]
+
+        # Tags/Keywords + Categories (deduped, case-insensitive)
+        seen_subjects = set()
+        subjects = []
         tags = record.get("tags", [])
-        if tags:
-            result["subjects"] = [{"subject": tag} for tag in tags]
-        
-        # Categories
+        for tag in tags:
+            key = tag.strip().lower()
+            if key and key not in seen_subjects:
+                seen_subjects.add(key)
+                subjects.append({"subject": tag})
+
         categories = record.get("categories", [])
-        if categories:
-            if "subjects" not in result:
-                result["subjects"] = []
-            for cat in categories:
-                if isinstance(cat, dict):
-                    result["subjects"].append({"subject": cat.get("title", "")})
-                else:
-                    result["subjects"].append({"subject": str(cat)})
-        
+        for cat in categories:
+            if isinstance(cat, dict):
+                cat_title = cat.get("title", "")
+            elif cat:
+                cat_title = str(cat)
+            else:
+                continue
+            key = cat_title.strip().lower()
+            if key and key not in seen_subjects:
+                seen_subjects.add(key)
+                subjects.append({"subject": cat_title})
+
+        if subjects:
+            result["subjects"] = subjects
+
         # License
         license_info = record.get("license")
         if license_info:
-            result["rightsList"] = [{
-                "rights": license_info.get("name", ""),
-                "rightsURI": license_info.get("url", ""),
-            }]
-        
-        # Access
-        if record.get("is_public"):
-            result["accessRights"] = "open"
-        else:
-            result["accessRights"] = "restricted"
-        
+            rights_entry = {}
+            if license_info.get("name"):
+                rights_entry["rights"] = license_info["name"]
+            if license_info.get("url"):
+                rights_entry["rightsUri"] = license_info["url"]
+            if rights_entry:
+                result["rightsList"] = [rights_entry]
+
         # Funding
         funding = record.get("funding_list", [])
         if funding:
             funders = []
             for f in funding:
                 funder_entry = {}
-                if f.get("funder_name"):
-                    funder_entry["funderName"] = f["funder_name"]
-                if f.get("title"):
+                funder_name = f.get("funder_name") or f.get("title") or "Not specified"
+                funder_entry["funderName"] = funder_name
+                if f.get("title") and f["title"] != funder_name:
                     funder_entry["awardTitle"] = f["title"]
                 if f.get("grant_code"):
                     funder_entry["awardNumber"] = f["grant_code"]
                 if funder_entry:
                     funders.append(funder_entry)
-            
             if funders:
                 result["fundingReferences"] = funders
-        
-        # Files
+
+        # File formats
         files = record.get("files", [])
         if files:
-            result["files"] = [
-                {
-                    "filename": f.get("name"),
-                    "size": f.get("size"),
-                    "downloadUrl": f.get("download_url"),
-                }
-                for f in files
-            ]
-            # Also set formats from file extensions
             formats = set()
             for f in files:
                 if f.get("name"):
@@ -456,48 +514,26 @@ class SchemaConverter:
                         formats.add(ext)
             if formats:
                 result["formats"] = list(formats)
-        
-        # Ensure all required fields
+
         return self._ensure_required_fields(result)
-    
+
     def detect_source(self, record: Dict) -> str:
-        """
-        Detect the source repository of a record.
-        
-        Args:
-            record: Raw metadata record
-            
-        Returns:
-            'zenodo', 'figshare', or 'unknown'
-        """
-        # Zenodo indicators
+        """Detect the source repository of a record."""
         if "metadata" in record and record.get("conceptrecid"):
             return "zenodo"
         if record.get("links", {}).get("self", "").startswith("https://zenodo"):
             return "zenodo"
-        
-        # Figshare indicators
         if "url_public_api" in record or "figshare" in str(record.get("url", "")):
             return "figshare"
         if "defined_type" in record:
             return "figshare"
-        
         return "unknown"
-    
+
     def convert(self, record: Dict, source: Optional[str] = None) -> Dict:
-        """
-        Convert a record from any supported source.
-        
-        Args:
-            record: Raw metadata record
-            source: Source repository ('zenodo', 'figshare', or auto-detect)
-            
-        Returns:
-            Converted record in posters-science schema
-        """
+        """Convert a record from any supported source."""
         if source is None:
             source = self.detect_source(record)
-        
+
         if source == "zenodo":
             return self.convert_zenodo(record)
         elif source == "figshare":
@@ -505,63 +541,33 @@ class SchemaConverter:
         else:
             logger.warning(f"Unknown source: {source}")
             return {"error": f"Unknown source: {source}", "original": record}
-    
-    def convert_file(
-        self,
-        input_file: str,
-        output_file: str,
-        source: Optional[str] = None,
-    ) -> Dict:
-        """
-        Convert a JSON file containing repository metadata.
-        
-        Args:
-            input_file: Input JSON file path
-            output_file: Output JSON file path
-            source: Source repository (auto-detect if None)
-            
-        Returns:
-            Converted record
-        """
+
+    def convert_file(self, input_file: str, output_file: str, source: Optional[str] = None) -> Dict:
+        """Convert a JSON file containing repository metadata."""
         with open(input_file, "r", encoding="utf-8") as f:
             record = json.load(f)
-        
+
         converted = self.convert(record, source)
-        
+
         output_path = Path(output_file)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(converted, f, indent=2, ensure_ascii=False)
-        
+
         return converted
-    
-    def convert_directory(
-        self,
-        input_dir: str,
-        output_dir: str,
-        source: Optional[str] = None,
-    ) -> Dict:
-        """
-        Convert all JSON files in a directory.
-        
-        Args:
-            input_dir: Input directory
-            output_dir: Output directory
-            source: Source repository (auto-detect if None)
-            
-        Returns:
-            Statistics dictionary
-        """
+
+    def convert_directory(self, input_dir: str, output_dir: str, source: Optional[str] = None) -> Dict:
+        """Convert all JSON files in a directory."""
         input_path = Path(input_dir)
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
-        
+
         json_files = list(input_path.glob("*.json"))
         logger.info(f"Converting {len(json_files)} files from {input_dir}")
-        
+
         stats = {"success": 0, "error": 0}
-        
+
         for json_file in tqdm(json_files, desc="Converting"):
             try:
                 output_file = output_path / json_file.name
@@ -570,7 +576,6 @@ class SchemaConverter:
             except Exception as e:
                 logger.error(f"Error converting {json_file}: {e}")
                 stats["error"] += 1
-        
+
         logger.info(f"Conversion complete: {stats['success']} success, {stats['error']} errors")
         return stats
-

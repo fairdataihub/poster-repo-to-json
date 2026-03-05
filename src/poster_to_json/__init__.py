@@ -1,27 +1,25 @@
 """
-Poster to JSON - Extract scientific poster content to machine-actionable JSON.
+poster-to-json — Full pipeline for scientific poster metadata extraction.
 
-This package provides tools to:
-- Extract text from PDF posters using pdfalto
-- Perform OCR on image-based posters using Qwen2.5-VL
-- Structure extracted content into JSON using Llama 3.1
-- Convert repository metadata (Zenodo/Figshare) to posters-science schema
-- Merge extracted content with bibliographic metadata
+Pipeline:
+1. Scrape poster metadata from Zenodo/Figshare (via poster-scraper)
+2. Validate and classify posters (via poster-qc)
+3. Extract structured JSON from posters (via poster2json)
+4. Convert repository metadata to posters-science schema
+5. Merge: poster2json output is PRIMARY, repo metadata backfills gaps
 
-Models:
-- Ollama Llama 3.1 8B Instruct: JSON structuring
-- Transformers Qwen2.5-VL: Vision OCR (optional, for image-based posters)
+Output conforms to poster_schema.json (DataCite-based with poster extensions).
 """
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
 
 from .extractor import PosterExtractor
-from .schema_converter import SchemaConverter
+from .schema_converter import SchemaConverter, load_bundled_schema
 from .merger import MetadataMerger
 
 __all__ = [
     "PosterExtractor",
     "SchemaConverter",
     "MetadataMerger",
+    "load_bundled_schema",
 ]
-
