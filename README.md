@@ -130,6 +130,26 @@ Checks for:
 - `corrupt_json` — mid-write crash
 - `extraction_error` — Phase 1 failures (OCR couldn't recover)
 
+### Backfilling New poster2json Features
+
+When poster2json ships new enrichment features (e.g. SPDX license normalization, ROR affiliation IDs, heuristic language detection, `researchField` on the OpenAlex 4 domains), existing extraction JSONs can be updated in-place without re-running the LLM:
+
+```bash
+export POSTER2JSON_PATH=/path/to/poster2json
+python scripts/backfill_features.py --extractions /path/to/output/extractions
+```
+
+The backfill is idempotent and reuses cached raw text from `_raw_text/` for language detection. It applies:
+
+- SPDX license normalization (`rightsList` entries get canonical SPDX IDs + URIs)
+- Subject dedupe + NFKC cleanup
+- ROR enrichment on `creators.affiliation` and `publisher` (canonical names + ROR IDs)
+- Heuristic language detection from raw text (overrides LLM-hallucinated language)
+- `researchField` placeholder strip (drops "Other", "Unknown", etc. → `null`)
+- NFKC normalization on titles and descriptions
+
+The feature modules (`normalize.py`, `ror.py`, `language.py`) are vendored in `vendor/poster2json_features/` for reference.
+
 ### Stale Error Recovery
 
 If earlier runs had bugs (OOM crashes, broken pdfalto flag, etc.), those stale error JSONs block re-processing. This script removes them if the raw text is cached (Phase 1 succeeded but Phase 2 failed):
