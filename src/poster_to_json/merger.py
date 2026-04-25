@@ -113,12 +113,32 @@ class MetadataMerger:
                 # Special: merge subjects (union, deduped)
                 result["subjects"] = self._merge_subjects(ext_val, meta_val)
             elif field == "identifiers":
-                # Special: merge identifiers (DOIs from metadata are authoritative)
-                result["identifiers"] = self._merge_identifiers(ext_val, meta_val)
+                # Metadata identifiers are authoritative (real poster DOI + record ID).
+                # Extraction identifiers are often polluted with reference DOIs
+                # found in the poster text — move those to relatedIdentifiers instead.
+                result["identifiers"] = self._clean_identifiers(ext_val, meta_val, result)
             elif field == "descriptions":
-                # Special: keep extraction descriptions, add metadata ones if different
-                result["descriptions"] = self._merge_descriptions(ext_val, meta_val)
+                # Extraction descriptions are gospel — don't add metadata descriptions.
+                # Metadata descriptions are typically just short Figshare/Zenodo summaries
+                # that duplicate or are less complete than the poster's own abstract.
+                pass  # Keep extraction descriptions as-is
+            elif field == "conference":
+                # Conference info from repository metadata SUPERSEDES extraction.
+                # The LLM often guesses/hallucinates conference details, but
+                # Zenodo/Figshare metadata has authoritative conference data
+                # (from the uploader who knows which conference it was presented at).
+                # Merge strategy: start with metadata conference, then backfill
+                # any fields the metadata is missing from the extraction.
+                result["conference"] = self._merge_conference(ext_val, meta_val)
             # Otherwise: extraction has a value — keep it, don't overwrite
+
+        # Enforce single description — the schema expects one description (the abstract).
+        # The LLM sometimes dumps section content into descriptions instead of content.sections.
+        descs = result.get("descriptions", [])
+        if len(descs) > 1:
+            # Prefer the first Abstract-typed description
+            abstract = next((d for d in descs if d.get("descriptionType") == "Abstract"), None)
+            result["descriptions"] = [abstract] if abstract else [descs[0]]
 
         return result
 
@@ -176,6 +196,39 @@ class MetadataMerger:
                     merged.append(subj)
         return merged
 
+    def _clean_identifiers(self, ext_ids: List, meta_ids: List, result: Dict) -> List:
+        """Use metadata identifiers as authoritative; move extraction DOIs to relatedIdentifiers.
+
+        The poster's real DOI and record ID come from metadata (Zenodo/Figshare).
+        DOIs found by poster2json in the poster text are reference citations,
+        not the poster's own identifiers — they belong in relatedIdentifiers.
+        """
+        # Metadata identifiers are the real ones
+        real_ids = list(meta_ids or [])
+        real_id_values = {i.get("identifier", "").lower() for i in real_ids}
+
+        # Any extraction identifiers NOT already in metadata are likely references
+        ref_ids = []
+        for eid in (ext_ids or []):
+            if isinstance(eid, dict) and eid.get("identifier"):
+                if eid["identifier"].lower() not in real_id_values:
+                    ref_ids.append({
+                        "relatedIdentifier": eid["identifier"],
+                        "relatedIdentifierType": eid.get("identifierType", "DOI"),
+                        "relationType": "References",
+                    })
+
+        # Add reference DOIs to relatedIdentifiers
+        if ref_ids:
+            existing_related = result.get("relatedIdentifiers", [])
+            existing_vals = {r.get("relatedIdentifier", "").lower() for r in existing_related}
+            for r in ref_ids:
+                if r["relatedIdentifier"].lower() not in existing_vals:
+                    existing_related.append(r)
+            result["relatedIdentifiers"] = existing_related
+
+        return real_ids if real_ids else (ext_ids or [])
+
     def _merge_identifiers(self, ext_ids: List, meta_ids: List) -> List:
         """Merge identifiers, preferring metadata DOIs."""
         seen = set()
@@ -188,6 +241,33 @@ class MetadataMerger:
                     seen.add(key)
                     merged.append(ident)
         return merged
+
+    def _merge_conference(self, ext_conf: Dict, meta_conf: Dict) -> Dict:
+        """Merge conference info — metadata supersedes extraction.
+
+        Repository metadata (Zenodo/Figshare) is authoritative for conference
+        details because the uploader explicitly provided this information.
+        The LLM extraction often guesses or hallucinates conference names/dates.
+
+        Strategy: start with metadata, backfill missing fields from extraction.
+        """
+        if not meta_conf or _is_placeholder(meta_conf.get("conferenceName", "")):
+            # Metadata has no real conference info — use extraction as-is
+            return ext_conf or {}
+
+        if not ext_conf:
+            return meta_conf
+
+        # Start with metadata as base (authoritative)
+        result = dict(meta_conf)
+
+        # Backfill any fields metadata is missing from extraction
+        for key, val in ext_conf.items():
+            if key not in result or _is_empty(result[key]) or _is_placeholder(result.get(key, "")):
+                if not _is_empty(val) and not _is_placeholder(val):
+                    result[key] = val
+
+        return result
 
     def _merge_descriptions(self, ext_descs: List, meta_descs: List) -> List:
         """Keep extraction descriptions, add unique metadata descriptions."""
