@@ -32,21 +32,27 @@ for f in sorted(EXT_DIR.glob('*_extracted.json')):
         continue
 
     # Check: multiple descriptions (LLM failure)
-    descs = data.get('descriptions', [])
-    if len(descs) > 1:
-        types = [d.get('descriptionType', '?') for d in descs]
+    descs = data.get('descriptions') or []
+    if isinstance(descs, list) and len(descs) > 1:
+        types = [d.get('descriptionType', '?') if isinstance(d, dict) else type(d).__name__ for d in descs]
         failures.append((f.name, 'multi_description', f'{len(descs)} descriptions: {types}'))
         continue
 
     # Check: no content sections
-    sections = data.get('content', {}).get('sections', [])
+    content = data.get('content') or {}
+    sections = content.get('sections', []) if isinstance(content, dict) else []
     if not sections:
         failures.append((f.name, 'no_content', 'No content sections extracted'))
         continue
 
     # Check: empty title
-    titles = data.get('titles', [])
-    if not titles or not titles[0].get('title', '').strip():
+    titles = data.get('titles') or []
+    if not titles:
+        failures.append((f.name, 'no_title', 'Missing titles list'))
+        continue
+    first_title = titles[0]
+    title_str = first_title.get('title', '') if isinstance(first_title, dict) else str(first_title)
+    if not title_str.strip():
         failures.append((f.name, 'no_title', 'Missing or empty title'))
         continue
 
