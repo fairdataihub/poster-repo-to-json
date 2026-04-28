@@ -115,9 +115,28 @@ export POSTER2JSON_PATH=/path/to/poster2json
 bash scripts/run_2gpu.sh
 ```
 
-**Why 2 GPUs, not 4?** Running all 4 RTX 3090s at full load (350W each) on a single consumer circuit trips overcurrent protection. Running 2 at 250W stays within a standard 15A/20A circuit. `nvidia-smi -pl 250` limits draw.
+### Running on 3 GPUs (with 4-bit quantization)
 
-### Post-Batch Quality Check
+With the JSON model in 4-bit NF4 (~5GB VRAM, default in poster2json 0.4.x), three RTX 3090s at 250W each pull ~600W combined under load — within the same circuit budget as the old 2-GPU bfloat16 setup. The third GPU adds ~50% throughput.
+
+```bash
+# Cap all four GPUs to 250W (idempotent, runs from Windows side on WSL)
+nvidia-smi -i 0 -pl 250
+nvidia-smi -i 1 -pl 250
+nvidia-smi -i 2 -pl 250
+nvidia-smi -i 3 -pl 250
+
+# Launch: 3 GPUs in parallel on splits 0,1,2; then GPU 0 picks up split 3
+bash scripts/run_3gpu.sh
+```
+
+**Why not 4 GPUs?** Running all four RTX 3090s at full load (350W each) on a single consumer circuit trips overcurrent protection. Three at 250W stays within a standard 15A/20A circuit. Four at 250W is right at the edge — possible, not advised. `nvidia-smi -pl 250` limits draw.
+
+### Post-Batch Quality Check (default)
+
+QC runs **automatically after every batch** in both `run_2gpu.sh` and `run_3gpu.sh` — no manual step required. Each run writes the failure list to `failed_extractions.tsv` so you can retry the bad ones.
+
+You can also invoke it standalone:
 
 ```bash
 python scripts/post_batch_qc.py
