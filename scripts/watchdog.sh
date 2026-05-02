@@ -57,7 +57,7 @@ restart_gpu() {
     echo "[$(date)] Restarting GPU $gpu via $script" >> "$LOG"
     # Use schtasks to launch detached. Use a unique task name per GPU so reruns work.
     local task_name="PosterWatchdogGpu${gpu}"
-    /mnt/c/Windows/System32/schtasks.exe /create //tn "$task_name" //tr "wsl.exe -d Ubuntu-24.04 -e bash $script" //sc once //st 00:00 //f //rl highest >> "$LOG" 2>&1
+    /mnt/c/Windows/System32/schtasks.exe /create //tn "$task_name" //tr "wsl.exe -d Ubuntu-24.04 -e bash $script" //sc once //st 00:00 //ru SYSTEM //f //rl highest >> "$LOG" 2>&1
     /mnt/c/Windows/System32/schtasks.exe /run //tn "$task_name" >> "$LOG" 2>&1
 }
 
