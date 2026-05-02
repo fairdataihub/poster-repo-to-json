@@ -2,7 +2,16 @@
 # Watchdog: ensures one batch_extract_v2 process per assigned GPU.
 # If a GPU's process has died and its split still has work to do, restart it.
 #
-# Run every 5 minutes via Windows Task Scheduler.
+# Schedule via Windows Task Scheduler. IMPORTANT: register as SYSTEM (not the
+# default current-user/Interactive only) so it runs even when no one is
+# logged in:
+#
+#   schtasks /create /tn PosterWatchdog \
+#       /tr "wsl.exe -d Ubuntu-24.04 -e bash /home/james/watchdog.sh" \
+#       /sc minute /mo 5 /ru SYSTEM /rl highest /f
+#
+# Without /ru SYSTEM the task is "Interactive only" and silently skips runs
+# while the user is signed out — defeating the whole point of the watchdog.
 
 LOG=/home/james/logs/watchdog.log
 SPLITS=/home/james/gpu_splits
