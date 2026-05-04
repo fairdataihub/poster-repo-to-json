@@ -38,16 +38,21 @@ todo_for_split() {
 }
 
 is_gpu_alive() {
-    # Returns 0 if a python batch_extract_v2 process is using this GPU
+    # Returns 0 if a python batch_extract_v2 process is targeting this split.
+    # We match on the --posters argument rather than nvidia-smi PIDs, because
+    # nvidia-smi compute-apps queries can return blank rows even when a
+    # process exists (and the reverse during model load), and SYSTEM context
+    # may not see the right /proc entries.
     local gpu="$1"
-    # Get PIDs of python processes on this GPU
-    local gpu_pids=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader -i "$gpu" 2>/dev/null | tr -d ' ')
-    [ -z "$gpu_pids" ] && return 1
-    for pid in $gpu_pids; do
-        if grep -q batch_extract_v2 "/proc/$pid/cmdline" 2>/dev/null; then
+    if pgrep -f "batch_extract_v2.py.*--posters[ =]/home/james/gpu_splits/gpu${gpu}" >/dev/null; then
+        return 0
+    fi
+    # GPU 2 also runs split gpu3 in its sequence
+    if [ "$gpu" = "2" ]; then
+        if pgrep -f "batch_extract_v2.py.*--posters[ =]/home/james/gpu_splits/gpu3" >/dev/null; then
             return 0
         fi
-    done
+    fi
     return 1
 }
 
@@ -55,10 +60,13 @@ restart_gpu() {
     local gpu="$1"
     local script="$2"
     echo "[$(date)] Restarting GPU $gpu via $script" >> "$LOG"
-    # Use schtasks to launch detached. Use a unique task name per GPU so reruns work.
-    local task_name="PosterWatchdogGpu${gpu}"
-    /mnt/c/Windows/System32/schtasks.exe /create //tn "$task_name" //tr "wsl.exe -d Ubuntu-24.04 -e bash $script" //sc once //st 00:00 //ru SYSTEM //f //rl highest >> "$LOG" 2>&1
-    /mnt/c/Windows/System32/schtasks.exe /run //tn "$task_name" >> "$LOG" 2>&1
+    # Launch as a detached background process inside WSL. The watchdog
+    # daemon itself runs forever, so its child processes inherit the
+    # daemon's lifetime — they survive SSH disconnects but die if the
+    # WSL VM shuts down. setsid + & gives us a fully detached process
+    # group so the daemon's wait/sleep loop doesn't wait on the child.
+    setsid bash "$script" </dev/null >>"$LOG" 2>&1 &
+    disown
 }
 
 # GPU 0 -> split gpu0
