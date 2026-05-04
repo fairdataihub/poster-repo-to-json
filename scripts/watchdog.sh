@@ -38,22 +38,33 @@ todo_for_split() {
 }
 
 is_gpu_alive() {
-    # Returns 0 if a python batch_extract_v2 process is targeting this split.
-    # We match on the --posters argument rather than nvidia-smi PIDs, because
-    # nvidia-smi compute-apps queries can return blank rows even when a
-    # process exists (and the reverse during model load), and SYSTEM context
-    # may not see the right /proc entries.
+    # Returns 0 if a python batch_extract_v2 process is using this GPU
+    # (against any --posters dir — original split or remaining pool).
     local gpu="$1"
-    if pgrep -f "batch_extract_v2.py.*--posters[ =]/home/james/gpu_splits/gpu${gpu}" >/dev/null; then
-        return 0
-    fi
-    # GPU 2 also runs split gpu3 in its sequence
-    if [ "$gpu" = "2" ]; then
-        if pgrep -f "batch_extract_v2.py.*--posters[ =]/home/james/gpu_splits/gpu3" >/dev/null; then
-            return 0
+    # Match a process whose CUDA_VISIBLE_DEVICES is set to this GPU.
+    # We can't filter env vars directly with pgrep, so check by --posters paths
+    # the GPU may be assigned to. Includes the unified pool.
+    for path in "gpu${gpu}" "remaining" "gpu3"; do
+        if pgrep -f "batch_extract_v2.py.*--posters[ =]/home/james/gpu_splits/${path}" >/dev/null; then
+            # Confirm this PID is actually pinned to our GPU
+            for pid in $(pgrep -f "batch_extract_v2.py.*--posters[ =]/home/james/gpu_splits/${path}"); do
+                local env_gpu=$(tr '\0' '\n' < /proc/$pid/environ 2>/dev/null | grep CUDA_VISIBLE_DEVICES | cut -d= -f2)
+                if [ "$env_gpu" = "$gpu" ]; then
+                    return 0
+                fi
+            done
         fi
-    fi
+    done
     return 1
+}
+
+count_pending_in() {
+    local split_dir="$1"
+    [ -d "$split_dir" ] || { echo 0; return; }
+    comm -23 \
+        <(ls "$split_dir" | sed 's/\.[^.]*$//' | sort -u) \
+        <(find "$EXT" -maxdepth 1 -name '*_extracted.json' -exec grep -L '"error"' {} \; 2>/dev/null | sed 's|.*/||;s|_extracted\.json$||' | sort -u) \
+        | wc -l
 }
 
 restart_gpu() {
@@ -69,35 +80,39 @@ restart_gpu() {
     disown
 }
 
-# GPU 0 -> split gpu0
-if ! is_gpu_alive 0; then
-    todo=$(ls $EXT/*_extracted.json 2>/dev/null | wc -l)  # quick proxy
-    todo_real=$(find $SPLITS/gpu0 -type l -o -type f 2>/dev/null | wc -l)
-    if [ "$todo_real" -gt 0 ]; then
-        # Quick check: are there pending files in split 0?
-        pending_split0=$(comm -23 <(ls $SPLITS/gpu0 | sed 's/\.[^.]*$//' | sort) <(ls $EXT/*_extracted.json 2>/dev/null | sed 's|.*/||;s|_extracted\.json$||' | sort) | wc -l)
-        if [ "$pending_split0" -gt 0 ]; then
-            echo "[$(date)] GPU 0 dead, $pending_split0 still pending in split 0" >> "$LOG"
-            restart_gpu 0 /home/james/start_gpu0_split0.sh
-        fi
-    fi
-fi
+# Rebuild the unified "remaining" pool every run so newly-finished posters
+# fall out and any that errored fall back in. Cheap symlink ops, ~1s.
+bash /home/james/build_remaining_pool.sh >/dev/null 2>&1
 
-# GPU 1 -> split gpu1
-if ! is_gpu_alive 1; then
-    pending_split1=$(comm -23 <(ls $SPLITS/gpu1 | sed 's/\.[^.]*$//' | sort) <(ls $EXT/*_extracted.json 2>/dev/null | sed 's|.*/||;s|_extracted\.json$||' | sort) | wc -l)
-    if [ "$pending_split1" -gt 0 ]; then
-        echo "[$(date)] GPU 1 dead, $pending_split1 still pending in split 1" >> "$LOG"
-        restart_gpu 1 /home/james/start_gpu1_split1.sh
+# Per-GPU schedule: if a GPU isn't running anything, give it work.
+# Priority: original assigned split first, fall through to the unified pool.
+for gpu in 0 1 2; do
+    if is_gpu_alive "$gpu"; then
+        continue
     fi
-fi
 
-# GPU 2 -> splits gpu2 then gpu3
-if ! is_gpu_alive 2; then
-    pending_split2=$(comm -23 <(ls $SPLITS/gpu2 | sed 's/\.[^.]*$//' | sort) <(ls $EXT/*_extracted.json 2>/dev/null | sed 's|.*/||;s|_extracted\.json$||' | sort) | wc -l)
-    pending_split3=$(comm -23 <(ls $SPLITS/gpu3 | sed 's/\.[^.]*$//' | sort) <(ls $EXT/*_extracted.json 2>/dev/null | sed 's|.*/||;s|_extracted\.json$||' | sort) | wc -l)
-    if [ "$pending_split2" -gt 0 ] || [ "$pending_split3" -gt 0 ]; then
-        echo "[$(date)] GPU 2 dead, splits 2/3 pending: $pending_split2 / $pending_split3" >> "$LOG"
-        restart_gpu 2 /home/james/start_gpu2_remaining.sh
+    primary_split=""
+    primary_script=""
+    case "$gpu" in
+        0) primary_split="$SPLITS/gpu0"; primary_script=/home/james/start_gpu0_split0.sh ;;
+        1) primary_split="$SPLITS/gpu1"; primary_script=/home/james/start_gpu1_split1.sh ;;
+        2) primary_split="$SPLITS/gpu2"; primary_script=/home/james/start_gpu2_remaining.sh ;;
+    esac
+
+    primary_pending=$(count_pending_in "$primary_split")
+
+    if [ "$primary_pending" -gt 0 ]; then
+        echo "[$(date)] GPU $gpu idle, $primary_pending still pending in primary split — restarting primary" >> "$LOG"
+        restart_gpu "$gpu" "$primary_script"
+        continue
     fi
-fi
+
+    # Primary split done — pivot to the unified remaining pool.
+    pool_pending=$(count_pending_in "$SPLITS/remaining")
+    if [ "$pool_pending" -gt 0 ]; then
+        echo "[$(date)] GPU $gpu primary split done, $pool_pending in pool — pivoting to pool" >> "$LOG"
+        # Inline launcher: avoids needing a separate script that hardcodes the GPU.
+        setsid bash /home/james/start_pool_gpu.sh "$gpu" </dev/null >>"$LOG" 2>&1 &
+        disown
+    fi
+done
