@@ -30,6 +30,7 @@ import torch
 from tqdm import tqdm
 
 BATCH_SIZE = 1  # posters per batch — fits in 7GB free VRAM
+MAX_INPUT_TOKENS = 15000  # skip posters with raw text exceeding this (5x normal max)
 
 
 def find_poster_files(posters_dir):
@@ -172,6 +173,16 @@ def main():
                     continue
             except Exception:
                 pass
+
+        input_tokens = len(tokenizer.encode(raw_text, add_special_tokens=False))
+        if input_tokens > MAX_INPUT_TOKENS:
+            errors += 1
+            out_file.write_text(json.dumps({
+                "error": f"Skipped: input too large ({input_tokens} tokens)",
+                "_input_tokens": input_tokens,
+            }))
+            pbar.set_postfix(ok=success, err=errors, skip=f"{input_tokens}tok")
+            continue
 
         try:
             t0 = time.time()
