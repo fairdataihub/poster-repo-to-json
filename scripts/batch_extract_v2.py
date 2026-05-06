@@ -23,10 +23,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-# Allow overriding poster2json location via env var; default expects it as a sibling repo
-_POSTER2JSON_PATH = os.environ.get("POSTER2JSON_PATH")
-if _POSTER2JSON_PATH:
-    sys.path.insert(0, _POSTER2JSON_PATH)
+sys.path.insert(0, "/home/james/poster2json")
 
 import torch
 
@@ -161,97 +158,48 @@ def main():
 
     success = 0
     errors = 0
-    retries = []  # items that need retry with more tokens
 
-    # Process in batches
-    pbar = tqdm(range(0, len(phase2_items), batch_size),
-                desc=f"GPU{gpu_id} json", unit="batch")
-    for batch_start in pbar:
-        batch = phase2_items[batch_start:batch_start + batch_size]
+    from poster2json.extract import extract_json_with_retry
 
-        # Skip any already completed by another GPU
-        batch = [(f, t, s) for f, t, s in batch
-                 if not (output_dir / f"{f.stem}_extracted.json").exists()
-                 or "error" in json.loads((output_dir / f"{f.stem}_extracted.json").read_text())]
-        if not batch:
-            continue
+    pbar = tqdm(phase2_items, desc=f"GPU{gpu_id} json", unit="poster")
+    for poster_file, raw_text, source in pbar:
+        out_file = output_dir / f"{poster_file.stem}_extracted.json"
 
-        # Build prompts
-        prompts = []
-        for _, raw_text, _ in batch:
-            normalized = _normalize_raw_text_for_model(raw_text)
-            prompts.append(EXTRACTION_PROMPT.format(raw_text=normalized))
+        # Skip if completed by another GPU since we started
+        if out_file.exists():
+            try:
+                existing = json.loads(out_file.read_text())
+                if "error" not in existing:
+                    continue
+            except Exception:
+                pass
 
         try:
             t0 = time.time()
-            responses = _generate_batch(model, tokenizer, prompts, MAX_JSON_TOKENS)
+            result = extract_json_with_retry(raw_text, model, tokenizer)
+            result = _postprocess_json(result, raw_text=raw_text)
             elapsed = time.time() - t0
 
-            # Parse each response
-            for i, (poster_file, raw_text, source) in enumerate(batch):
-                out_file = output_dir / f"{poster_file.stem}_extracted.json"
-                try:
-                    result = _robust_json_parse(responses[i])
+            result["_source"] = source
+            result["_extraction_time_s"] = round(elapsed, 1)
 
-                    if "error" in result or _is_truncated(result.get("raw", "")):
-                        # Queue for individual retry
-                        retries.append((poster_file, raw_text, source))
-                        continue
+            with open(out_file, "w", encoding="utf-8") as fh:
+                json.dump(result, fh, indent=2, ensure_ascii=False)
 
-                    result = _postprocess_json(result, raw_text=raw_text)
-                    result["_source"] = source
-                    result["_extraction_time_s"] = round(elapsed / len(batch), 1)
+            if "error" not in result:
+                success += 1
+            else:
+                errors += 1
 
-                    with open(out_file, "w", encoding="utf-8") as fh:
-                        json.dump(result, fh, indent=2, ensure_ascii=False)
-
-                    if "error" not in result:
-                        success += 1
-                    else:
-                        errors += 1
-                except Exception as e:
-                    retries.append((poster_file, raw_text, source))
-
-            pbar.set_postfix(ok=success, err=errors, retry=len(retries),
-                             last=f"{elapsed:.0f}s/{len(batch)}")
+            pbar.set_postfix(ok=success, err=errors, last=f"{elapsed:.0f}s")
 
         except KeyboardInterrupt:
             print(f"\n[GPU {gpu_id}] Interrupted. {success} done. Resume safe.")
             break
         except Exception as e:
-            log(f"Batch error: {e}")
-            # Fall back to individual processing for this batch
-            for poster_file, raw_text, source in batch:
-                retries.append((poster_file, raw_text, source))
-
-    # Process retries individually with more tokens
-    if retries:
-        print(f"\n[GPU {gpu_id}] Retrying {len(retries)} posters individually with {MAX_RETRY_TOKENS} tokens...")
-        from poster2json.extract import extract_json_with_retry
-        for poster_file, raw_text, source in tqdm(retries, desc=f"GPU{gpu_id} retry", unit="poster"):
-            out_file = output_dir / f"{poster_file.stem}_extracted.json"
-            try:
-                t0 = time.time()
-                result = extract_json_with_retry(raw_text, model, tokenizer)
-                result = _postprocess_json(result, raw_text=raw_text)
-                elapsed = time.time() - t0
-
-                result["_source"] = source
-                result["_extraction_time_s"] = round(elapsed, 1)
-
-                with open(out_file, "w", encoding="utf-8") as fh:
-                    json.dump(result, fh, indent=2, ensure_ascii=False)
-
-                if "error" not in result:
-                    success += 1
-                else:
-                    errors += 1
-            except KeyboardInterrupt:
-                print(f"\n[GPU {gpu_id}] Interrupted. Resume safe.")
-                break
-            except Exception as e:
-                errors += 1
-                out_file.write_text(json.dumps({"error": str(e)}))
+            errors += 1
+            out_file.write_text(json.dumps({"error": str(e)}))
+            pbar.set_postfix(ok=success, err=errors)
 
     print(f"\n[GPU {gpu_id}] DONE: {success} ok, {errors} errors")
     print(f"[GPU {gpu_id}] End: {datetime.now().isoformat()}")
