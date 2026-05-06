@@ -81,7 +81,6 @@ def main():
         get_raw_text,
         load_json_model,
         unload_vision_model,
-        _generate_batch,
         _robust_json_parse,
         _postprocess_json,
         _normalize_raw_text_for_model,
@@ -153,7 +152,7 @@ def main():
         return
 
     print(f"\n[GPU {gpu_id}] Phase 2: Loading Llama model...")
-    model, tokenizer = load_json_model(force_full_precision=False)
+    model, tokenizer = load_json_model()
     print(f"[GPU {gpu_id}] Model loaded. Processing {len(phase2_items)} posters in batches of {batch_size}...")
 
     success = 0
