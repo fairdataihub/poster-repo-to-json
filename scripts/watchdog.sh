@@ -38,7 +38,7 @@ restart_gpu() {
     local gpu="$1"
     local script="$2"
     echo "[$(date)] Restarting GPU $gpu via $script" >> "$LOG"
-    setsid bash "$script" </dev/null >>"$LOG" 2>&1 &
+    setsid bash "$script" 200>&- </dev/null >>"$LOG" 2>&1 &
     disown
 }
 
@@ -69,7 +69,7 @@ for gpu in 0 1 2; do
     pool_pending=$(count_pending_in "$SPLITS/remaining")
     if [ "$pool_pending" -gt 0 ]; then
         echo "[$(date)] GPU $gpu primary split done, $pool_pending in pool — pivoting to pool" >> "$LOG"
-        setsid bash /home/james/start_pool_gpu.sh "$gpu" </dev/null >>"$LOG" 2>&1 &
+        setsid bash /home/james/start_pool_gpu.sh "$gpu" 200>&- </dev/null >>"$LOG" 2>&1 &
         disown
         sleep 60
     fi
