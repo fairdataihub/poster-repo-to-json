@@ -37,18 +37,17 @@ _LANG3_TO_LANG2 = {
 }
 
 
-def _normalize_language(lang: str) -> str:
-    """Normalize language code to ISO 639-1 (2-letter)."""
+def _normalize_language(lang: str) -> Optional[str]:
+    """Normalize language code to ISO 639-1 (2-letter). Returns None if unrecognized."""
     if not lang:
-        return "en"
+        return None
     lang = lang.strip().lower()
     if len(lang) == 2:
         return lang
     if len(lang) == 3:
-        return _LANG3_TO_LANG2.get(lang, lang[:2])
-    # Handle full names
+        return _LANG3_TO_LANG2.get(lang)
     name_map = {"english": "en", "german": "de", "french": "fr", "spanish": "es"}
-    return name_map.get(lang, "en")
+    return name_map.get(lang)
 
 
 def _clean_html(text: str) -> str:
@@ -96,7 +95,7 @@ def load_bundled_schema() -> Dict:
 class SchemaConverter:
     """Converts repository metadata to posters-science schema."""
 
-    SCHEMA_URL = "https://posters.science/schema/v0.1/poster_schema.json"
+    SCHEMA_URL = "https://posters.science/schema/v0.2/poster_schema.json"
 
     def __init__(self):
         """Initialize converter."""
@@ -109,53 +108,11 @@ class SchemaConverter:
         return self._schema
 
     def _ensure_required_fields(self, result: Dict) -> Dict:
-        """Ensure all required fields have at least default values per poster_schema.json."""
-        if "identifiers" not in result or not result["identifiers"]:
-            result["identifiers"] = [{"identifier": "unknown", "identifierType": "Other"}]
-
-        if "creators" not in result or not result["creators"]:
-            result["creators"] = [{"name": "Unknown"}]
-
-        if "titles" not in result or not result["titles"]:
-            result["titles"] = [{"title": "Untitled Poster"}]
-
-        if "publisher" not in result:
-            result["publisher"] = {"name": "Unknown"}
-
-        if "publicationYear" not in result:
-            result["publicationYear"] = datetime.now().year
-
-        if "subjects" not in result or not result["subjects"]:
-            result["subjects"] = [{"subject": "Scientific Poster"}]
-
-        if "dates" not in result or not result["dates"]:
-            result["dates"] = [{"date": str(datetime.now().year), "dateType": "Issued"}]
-
-        if "language" not in result:
-            result["language"] = "en"
-
+        """Set universal defaults only. Missing data stays missing — no placeholders."""
         if "types" not in result:
             result["types"] = {"resourceType": "Scientific Poster", "resourceTypeGeneral": "Image"}
-
         if "formats" not in result or not result["formats"]:
             result["formats"] = ["PDF"]
-
-        if "rightsList" not in result or not result["rightsList"]:
-            result["rightsList"] = [{"rights": "All rights reserved"}]
-
-        if "descriptions" not in result or not result["descriptions"]:
-            result["descriptions"] = [{"description": "Scientific poster", "descriptionType": "Abstract"}]
-
-        if "fundingReferences" not in result or not result["fundingReferences"]:
-            result["fundingReferences"] = [{"funderName": "Not specified"}]
-
-        # Conference: use publicationYear as fallback for conferenceYear
-        pub_year = result.get("publicationYear", datetime.now().year)
-        if "conference" not in result or not result["conference"]:
-            result["conference"] = {"conferenceName": "Not specified", "conferenceYear": pub_year}
-        elif "conferenceYear" not in result["conference"]:
-            result["conference"]["conferenceYear"] = pub_year
-
         return result
 
     def convert_zenodo(self, record: Dict) -> Dict:
@@ -299,7 +256,7 @@ class SchemaConverter:
             for grant in grants:
                 funder_entry = {}
                 funder_name = (grant.get("funder", {}).get("name")
-                               or grant.get("title") or "Not specified")
+                               or grant.get("title") or "")
                 funder_entry["funderName"] = funder_name
                 if grant.get("title") and grant["title"] != funder_name:
                     funder_entry["awardTitle"] = grant["title"]
@@ -492,7 +449,7 @@ class SchemaConverter:
             funders = []
             for f in funding:
                 funder_entry = {}
-                funder_name = f.get("funder_name") or f.get("title") or "Not specified"
+                funder_name = f.get("funder_name") or f.get("title") or ""
                 funder_entry["funderName"] = funder_name
                 if f.get("title") and f["title"] != funder_name:
                     funder_entry["awardTitle"] = f["title"]

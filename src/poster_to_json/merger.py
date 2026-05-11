@@ -29,13 +29,19 @@ def _is_empty(value) -> bool:
     return False
 
 
+_PLACEHOLDER_STRINGS = frozenset({
+    "not specified", "unknown", "n/a", "", "untitled poster",
+    "scientific poster", "all rights reserved",
+})
+
+
 def _is_placeholder(value) -> bool:
-    """Check if a value is a placeholder like 'Not specified'."""
+    """Check if a value is a placeholder injected by SchemaConverter defaults."""
     if isinstance(value, str):
-        return value.strip().lower() in ("not specified", "unknown", "n/a", "")
+        return value.strip().lower() in _PLACEHOLDER_STRINGS
     if isinstance(value, dict):
-        vals = list(value.values())
-        return all(_is_placeholder(v) for v in vals)
+        vals = [v for v in value.values() if v is not None]
+        return bool(vals) and all(_is_placeholder(v) for v in vals)
     return False
 
 
@@ -46,17 +52,14 @@ class MetadataMerger:
     poster2json output is the base. Repository metadata only fills gaps.
     """
 
-    # Fields that poster2json extracts from the poster itself.
-    # These are NEVER overwritten by repo metadata.
     EXTRACTION_ONLY_FIELDS = [
         "content",
         "imageCaptions",
         "tableCaptions",
+        "researchField",
+        "_validation",
     ]
 
-    # Fields where repo metadata is typically more authoritative
-    # (DOIs, publication dates, licenses, funding) — but still
-    # only used to FILL missing fields, not replace.
     METADATA_FIELDS = [
         "$schema",
         "identifiers",
@@ -74,7 +77,7 @@ class MetadataMerger:
         "conference",
         "fundingReferences",
         "relatedIdentifiers",
-        "researchField",
+        "version",
     ]
 
     def merge(self, extraction: Dict, metadata: Dict) -> Dict:
@@ -132,15 +135,26 @@ class MetadataMerger:
                 result["conference"] = self._merge_conference(ext_val, meta_val)
             # Otherwise: extraction has a value — keep it, don't overwrite
 
-        # Enforce single description — the schema expects one description (the abstract).
-        # The LLM sometimes dumps section content into descriptions instead of content.sections.
-        descs = result.get("descriptions", [])
-        if len(descs) > 1:
-            # Prefer the first Abstract-typed description
-            abstract = next((d for d in descs if d.get("descriptionType") == "Abstract"), None)
-            result["descriptions"] = [abstract] if abstract else [descs[0]]
+        self._strip_metadata_placeholders(result)
 
         return result
+
+    @staticmethod
+    def _strip_metadata_placeholders(result: Dict):
+        """Remove placeholder values that leaked from SchemaConverter defaults."""
+        for field in ("fundingReferences", "conference", "rightsList",
+                      "descriptions", "identifiers", "creators", "titles",
+                      "subjects"):
+            val = result.get(field)
+            if isinstance(val, list):
+                result[field] = [
+                    v for v in val
+                    if not (isinstance(v, dict) and _is_placeholder(v))
+                ]
+                if not result[field]:
+                    del result[field]
+            elif isinstance(val, dict) and _is_placeholder(val):
+                del result[field]
 
     def _enrich_creators(self, ext_creators: List, meta_creators: List) -> List:
         """Enrich extraction creators with ORCIDs/affiliations from metadata."""

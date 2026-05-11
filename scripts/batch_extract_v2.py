@@ -16,6 +16,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -31,6 +32,17 @@ from tqdm import tqdm
 
 BATCH_SIZE = 1  # posters per batch — fits in 7GB free VRAM
 MAX_INPUT_TOKENS = 15000  # skip posters with raw text exceeding this (5x normal max)
+MAX_FILENAME_BYTES = 240  # ext4 limit is 255; leave room for suffix
+
+
+def _safe_stem(stem: str) -> str:
+    """Truncate stem if its UTF-8 encoding would exceed the filesystem filename limit."""
+    encoded = stem.encode("utf-8")
+    if len(encoded) <= MAX_FILENAME_BYTES:
+        return stem
+    truncated = encoded[:MAX_FILENAME_BYTES - 9].decode("utf-8", errors="ignore")
+    short_hash = hashlib.md5(encoded).hexdigest()[:8]
+    return f"{truncated}_{short_hash}"
 
 
 def find_poster_files(posters_dir):
@@ -71,7 +83,7 @@ def main():
     # Find files and skip completed
     all_files = find_poster_files(args.posters)
     completed = find_completed(output_dir)
-    pending = [f for f in all_files if f.stem not in completed]
+    pending = [f for f in all_files if _safe_stem(f.stem) not in completed]
 
     print(f"[GPU {gpu_id}] {len(all_files)} total, {len(completed)} done, {len(pending)} pending")
     if not pending:
@@ -102,7 +114,8 @@ def main():
 
     for f in tqdm(pending, desc=f"GPU{gpu_id} text", unit="pdf"):
         # Check if raw text already cached from a previous run
-        cache_file = raw_text_dir / f"{f.stem}.json"
+        safe = _safe_stem(f.stem)
+        cache_file = raw_text_dir / f"{safe}.json"
         if cache_file.exists():
             try:
                 cached = json.loads(cache_file.read_text())
@@ -123,15 +136,14 @@ def main():
                     "file": str(f), "chars": len(text),
                 }))
             else:
-                # Permanent failure - save error so we don't retry
-                out = output_dir / f"{f.stem}_extracted.json"
+                out = output_dir / f"{safe}_extracted.json"
                 out.write_text(json.dumps({
                     "error": "No text extracted",
                     "source": source,
                 }))
                 phase1_errors += 1
         except Exception as e:
-            out = output_dir / f"{f.stem}_extracted.json"
+            out = output_dir / f"{safe}_extracted.json"
             out.write_text(json.dumps({"error": str(e)}))
             phase1_errors += 1
 
@@ -146,7 +158,7 @@ def main():
     # Filter out any that got completed during Phase 1 by another GPU
     completed_now = find_completed(output_dir)
     phase2_items = [(f, t, s) for f, (t, s) in raw_texts.items()
-                    if f.stem not in completed_now]
+                    if _safe_stem(f.stem) not in completed_now]
 
     if not phase2_items:
         print(f"[GPU {gpu_id}] Nothing to process in Phase 2.")
@@ -163,7 +175,7 @@ def main():
 
     pbar = tqdm(phase2_items, desc=f"GPU{gpu_id} json", unit="poster")
     for poster_file, raw_text, source in pbar:
-        out_file = output_dir / f"{poster_file.stem}_extracted.json"
+        out_file = output_dir / f"{_safe_stem(poster_file.stem)}_extracted.json"
 
         # Skip if completed by another GPU since we started
         if out_file.exists():
