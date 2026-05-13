@@ -139,7 +139,7 @@ class SchemaConverter:
         # Creators (Zenodo already provides "Family, Given" format)
         creators = []
         for creator in metadata.get("creators", []):
-            name = creator.get("name", "")
+            name = _clean_html(creator.get("name", ""))
             creator_entry = {
                 "name": name,
                 "nameType": "Personal",
@@ -151,7 +151,7 @@ class SchemaConverter:
                 creator_entry["givenName"] = parts[1].strip()
 
             if creator.get("affiliation"):
-                creator_entry["affiliation"] = [{"name": creator["affiliation"]}]
+                creator_entry["affiliation"] = [{"name": _clean_html(creator["affiliation"])}]
             if creator.get("orcid"):
                 creator_entry["nameIdentifiers"] = [{
                     "nameIdentifier": creator["orcid"],
@@ -350,7 +350,7 @@ class SchemaConverter:
         # Creators — Figshare gives "Given Family", convert to "Family, Given"
         creators = []
         for author in record.get("authors", []):
-            full_name = author.get("full_name", "")
+            full_name = _clean_html(author.get("full_name", ""))
             name = _to_family_given(full_name)
             creator_entry = {
                 "name": name,
@@ -358,9 +358,9 @@ class SchemaConverter:
             }
             # Use structured first/last if available
             if author.get("last_name"):
-                creator_entry["familyName"] = author["last_name"]
+                creator_entry["familyName"] = _clean_html(author["last_name"])
             if author.get("first_name"):
-                creator_entry["givenName"] = author["first_name"]
+                creator_entry["givenName"] = _clean_html(author["first_name"])
 
             if author.get("orcid_id"):
                 creator_entry["nameIdentifiers"] = [{

@@ -30,8 +30,12 @@ def _is_empty(value) -> bool:
 
 
 _PLACEHOLDER_STRINGS = frozenset({
-    "not specified", "unknown", "n/a", "", "untitled poster",
+    "not specified", "unknown", "n/a", "na", "none", "", "untitled poster",
     "scientific poster", "all rights reserved",
+    "name of conference", "conference name", "city, country",
+    "conference organizer or institution name", "institution name",
+    "yyyy-mm-dd", "yyyy", "http://example.com", "https://example.com",
+    "conference url", "poster title", "main poster title",
 })
 
 
@@ -256,8 +260,8 @@ class MetadataMerger:
                     merged.append(ident)
         return merged
 
-    def _merge_conference(self, ext_conf: Dict, meta_conf: Dict) -> Dict:
-        """Merge conference info — metadata supersedes extraction.
+    def _merge_conference(self, ext_conf, meta_conf) -> Dict:
+        """Merge conference info -- metadata supersedes extraction.
 
         Repository metadata (Zenodo/Figshare) is authoritative for conference
         details because the uploader explicitly provided this information.
@@ -265,8 +269,12 @@ class MetadataMerger:
 
         Strategy: start with metadata, backfill missing fields from extraction.
         """
+        if isinstance(ext_conf, str):
+            ext_conf = {"conferenceName": ext_conf} if ext_conf.strip() else {}
+        if isinstance(meta_conf, str):
+            meta_conf = {"conferenceName": meta_conf} if meta_conf.strip() else {}
+
         if not meta_conf or _is_placeholder(meta_conf.get("conferenceName", "")):
-            # Metadata has no real conference info — use extraction as-is
             return ext_conf or {}
 
         if not ext_conf:
