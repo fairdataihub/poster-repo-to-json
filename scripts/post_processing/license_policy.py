@@ -92,12 +92,22 @@ BLOCKED_LICENSES = frozenset({
 _ND_PATTERN = re.compile(r"CC-BY(-NC)?-ND", re.IGNORECASE)
 
 
+_BLOCKED_LOWER = frozenset(b.lower() for b in BLOCKED_LICENSES)
+_ALLOWED_UPPER = frozenset(a.upper() for a in ALLOWED_LICENSES)
+
+
 def classify_license(rights_list) -> str:
     """Classify a rightsList as 'allowed', 'blocked', or 'unknown'.
 
-    Returns 'blocked' if ANY entry matches the blocklist or ND pattern.
-    Returns 'allowed' if at least one entry matches the whitelist.
-    Returns 'unknown' if the list is empty/null or no entry matches either list.
+    If ANY entry matches the whitelist, returns 'allowed' -- a single
+    permissive license grants the derivative rights we need even if other
+    entries are restrictive (dual licensing).
+
+    Returns 'blocked' if no entry is allowed and at least one matches the
+    blocklist or ND pattern.
+
+    Returns 'unknown' if the list is empty/null or no entry matches either
+    list. Enforcement treats 'unknown' the same as 'blocked'.
     """
     if not rights_list:
         return "blocked"
@@ -105,7 +115,7 @@ def classify_license(rights_list) -> str:
     if isinstance(rights_list, str):
         rights_list = [{"rights": rights_list}]
 
-    has_allowed = False
+    has_blocked = False
 
     for entry in rights_list:
         if isinstance(entry, str):
@@ -119,14 +129,14 @@ def classify_license(rights_list) -> str:
                 continue
             val = val.strip()
 
-            if val in BLOCKED_LICENSES or val.lower() in {b.lower() for b in BLOCKED_LICENSES}:
-                return "blocked"
+            if val in ALLOWED_LICENSES or val.upper() in _ALLOWED_UPPER:
+                return "allowed"
+            if val in BLOCKED_LICENSES or val.lower() in _BLOCKED_LOWER:
+                has_blocked = True
             if _ND_PATTERN.search(val):
-                return "blocked"
-            if val in ALLOWED_LICENSES or val.upper() in {a.upper() for a in ALLOWED_LICENSES}:
-                has_allowed = True
+                has_blocked = True
 
-    return "allowed" if has_allowed else "unknown"
+    return "blocked" if has_blocked else "unknown"
 
 
 # Fields added by poster2json extraction (derived from poster content).
