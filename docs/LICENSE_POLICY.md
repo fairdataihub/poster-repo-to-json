@@ -3,9 +3,10 @@
 ## Principle
 
 Structured JSON extraction from a scientific poster constitutes a derivative work.
-If the poster's license does not clearly grant permission to redistribute derivatives,
-we strip the extracted content and keep only the repository metadata (identifiers,
-creators, titles, dates, publisher, rights, funding, etc.).
+The pipeline checks each poster's license before processing. If the license does not
+clearly grant permission to redistribute derivatives, no content is extracted from
+the poster file. Only repository metadata is retained (identifiers, creators, titles,
+dates, publisher, rights, funding, etc.).
 
 ## Allowed Licenses (whitelist)
 
@@ -24,8 +25,8 @@ These licenses explicitly permit derivative works. Extracted poster content is *
 
 ## Blocked Licenses (blocklist)
 
-These do **not** grant derivative/redistribution rights. Extracted content is **stripped**;
-only repository metadata is retained.
+These do **not** grant derivative/redistribution rights. No content is extracted from
+the poster file; only repository metadata is retained.
 
 | Category | Licenses | Reason |
 |----------|----------|--------|
@@ -35,19 +36,20 @@ only repository metadata is retained.
 | Unknown terms | other-at, other-closed, other-nc, other | No defined license terms to evaluate |
 | Empty/null | (missing rightsList) | Cannot confirm permission; assume restrictive |
 
-## What gets stripped
+## What is and is not included
 
-When a poster's license is blocked, the following poster2json-derived fields are removed:
+When a poster's license is blocked, the following fields are **not extracted** from
+the poster file:
 
-- `content` (extracted text sections)
-- `descriptions` (LLM-generated abstracts)
-- `imageCaptions` (extracted figure captions)
-- `tableCaptions` (extracted table captions)
-- `researchField` (model-classified domain)
+- `content` (text sections)
+- `descriptions` (abstracts)
+- `imageCaptions` (figure captions)
+- `tableCaptions` (table captions)
+- `researchField` (research domain)
 
-A `_license_blocked: true` flag is added to mark the JSON as policy-stripped.
+A `_license_blocked: true` flag is added to mark the record as metadata-only.
 
-Fields that are **kept** (repository metadata, not derived from poster content):
+Fields that **are** included (repository metadata, not derived from poster content):
 
 - `identifiers`, `relatedIdentifiers`
 - `creators`, `contributors`
