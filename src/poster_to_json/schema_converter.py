@@ -75,6 +75,15 @@ def _extract_year_from_text(text: str) -> Optional[int]:
     return None
 
 
+def _strip_timestamp(date_str: str) -> str:
+    """Strip time portion from ISO timestamp, returning YYYY-MM-DD."""
+    if not date_str:
+        return date_str
+    if "T" in date_str:
+        return date_str.split("T")[0]
+    return date_str
+
+
 def _clean_title(title: str) -> str:
     """Clean title: strip file extensions, whitespace."""
     title = title.strip()
@@ -248,6 +257,13 @@ class SchemaConverter:
 
             if conference:
                 result["conference"] = conference
+                conf_start = conference.get("conferenceStartDate")
+                if conf_start:
+                    conf_end = conference.get("conferenceEndDate")
+                    presented = f"{conf_start}/{conf_end}" if conf_end else conf_start
+                    dates_list = result.get("dates", [])
+                    dates_list.append({"date": presented, "dateType": "Presented"})
+                    result["dates"] = dates_list
 
         # Funding/Grants
         grants = metadata.get("grants", [])
@@ -383,12 +399,13 @@ class SchemaConverter:
         # Publication year
         pub_date = record.get("published_date")
         if pub_date:
+            clean_date = _strip_timestamp(pub_date)
             try:
-                year = int(pub_date[:4])
+                year = int(clean_date[:4])
                 result["publicationYear"] = year
             except (ValueError, TypeError):
                 pass
-            result["dates"] = [{"date": pub_date, "dateType": "Issued"}]
+            result["dates"] = [{"date": clean_date, "dateType": "Issued"}]
 
         # Resource type
         result["types"] = {

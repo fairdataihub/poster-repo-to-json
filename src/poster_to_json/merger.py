@@ -3,13 +3,16 @@
 Metadata merger — combines poster2json extraction with repository metadata.
 
 poster2json output is the PRIMARY source (it extracted the actual poster).
-Repository metadata (Zenodo/Figshare) only BACKFILLS fields that poster2json
-left empty or missing. It never overwrites existing poster2json data.
+Repository metadata (Zenodo/Figshare) BACKFILLS fields that poster2json
+left empty or missing. For a small set of metadata-authoritative fields
+(publicationYear, dates, rightsList), repository metadata always wins
+because extraction fabricates these values.
 """
 
 import json
 import logging
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
 
@@ -43,6 +46,8 @@ def _is_placeholder(value) -> bool:
     """Check if a value is a placeholder injected by SchemaConverter defaults."""
     if isinstance(value, str):
         return value.strip().lower() in _PLACEHOLDER_STRINGS
+    if isinstance(value, int):
+        return value == datetime.now().year
     if isinstance(value, dict):
         vals = [v for v in value.values() if v is not None]
         return bool(vals) and all(_is_placeholder(v) for v in vals)
@@ -63,6 +68,12 @@ class MetadataMerger:
         "researchField",
         "_validation",
     ]
+
+    METADATA_AUTHORITATIVE_FIELDS = frozenset({
+        "publicationYear",
+        "rightsList",
+        "dates",
+    })
 
     METADATA_FIELDS = [
         "$schema",
@@ -110,38 +121,46 @@ class MetadataMerger:
             if meta_val is None or _is_empty(meta_val):
                 continue  # metadata has nothing to offer
 
-            if _is_empty(ext_val) or _is_placeholder(ext_val):
-                # Extraction is missing this field — use metadata
+            if field in self.METADATA_AUTHORITATIVE_FIELDS:
+                result[field] = meta_val
+            elif _is_empty(ext_val) or _is_placeholder(ext_val):
                 result[field] = meta_val
             elif field == "creators":
-                # Special: enrich extraction creators with metadata affiliations/ORCIDs
                 result["creators"] = self._enrich_creators(ext_val, meta_val)
             elif field == "subjects":
-                # Special: merge subjects (union, deduped)
                 result["subjects"] = self._merge_subjects(ext_val, meta_val)
             elif field == "identifiers":
-                # Metadata identifiers are authoritative (real poster DOI + record ID).
-                # Extraction identifiers are often polluted with reference DOIs
-                # found in the poster text — move those to relatedIdentifiers instead.
                 result["identifiers"] = self._clean_identifiers(ext_val, meta_val, result)
             elif field == "descriptions":
-                # Extraction descriptions are gospel — don't add metadata descriptions.
-                # Metadata descriptions are typically just short Figshare/Zenodo summaries
-                # that duplicate or are less complete than the poster's own abstract.
-                pass  # Keep extraction descriptions as-is
+                pass
             elif field == "conference":
-                # Conference info from repository metadata SUPERSEDES extraction.
-                # The LLM often guesses/hallucinates conference details, but
-                # Zenodo/Figshare metadata has authoritative conference data
-                # (from the uploader who knows which conference it was presented at).
-                # Merge strategy: start with metadata conference, then backfill
-                # any fields the metadata is missing from the extraction.
                 result["conference"] = self._merge_conference(ext_val, meta_val)
-            # Otherwise: extraction has a value — keep it, don't overwrite
 
+        self._ensure_presented_date(result)
         self._strip_metadata_placeholders(result)
 
         return result
+
+    @staticmethod
+    def _ensure_presented_date(result: Dict):
+        """If conference has dates, ensure a Presented entry exists in dates[]."""
+        conf = result.get("conference")
+        if not isinstance(conf, dict):
+            return
+
+        start = conf.get("conferenceStartDate")
+        if not start or _is_placeholder(start):
+            return
+
+        end = conf.get("conferenceEndDate")
+        presented_date = f"{start}/{end}" if (end and not _is_placeholder(end)) else start
+
+        dates = result.get("dates", [])
+        for d in dates:
+            if isinstance(d, dict) and d.get("dateType") == "Presented":
+                return
+        dates.append({"date": presented_date, "dateType": "Presented"})
+        result["dates"] = dates
 
     @staticmethod
     def _strip_metadata_placeholders(result: Dict):
