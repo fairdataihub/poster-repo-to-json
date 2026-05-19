@@ -189,6 +189,12 @@ class SchemaConverter:
                 pass
             result["dates"] = [{"date": pub_date, "dateType": "Issued"}]
 
+        created = record.get("created", "")
+        if created:
+            dates_list = result.get("dates", [])
+            dates_list.append({"date": _strip_timestamp(created), "dateType": "Submitted"})
+            result["dates"] = dates_list
+
         # Resource type
         result["types"] = {
             "resourceType": "Scientific Poster",
@@ -406,6 +412,12 @@ class SchemaConverter:
             except (ValueError, TypeError):
                 pass
             result["dates"] = [{"date": clean_date, "dateType": "Issued"}]
+
+        created = record.get("created_date", "")
+        if created:
+            dates_list = result.get("dates", [])
+            dates_list.append({"date": _strip_timestamp(created), "dateType": "Submitted"})
+            result["dates"] = dates_list
 
         # Resource type
         result["types"] = {
