@@ -2,11 +2,16 @@
 """
 Metadata merger — combines poster2json extraction with repository metadata.
 
-poster2json output is the PRIMARY source (it extracted the actual poster).
-Repository metadata (Zenodo/Figshare) BACKFILLS fields that poster2json
-left empty or missing. For a small set of metadata-authoritative fields
-(publicationYear, dates, rightsList), repository metadata always wins
-because extraction fabricates these values.
+poster2json output is the base for poster-content fields (sections, captions,
+research field) and for resolved identifiers it discovers (ORCID, ROR).
+
+Repository metadata (Zenodo/Figshare) is authoritative for fields the depositor
+curated: the author list and ordering (creators), the deposit description (the
+primary Abstract), funding/grants, publication year, dates, and rights. For
+these, repository metadata wins when present; poster2json only ENRICHES
+repository creators with identifiers it resolved (ORCID, ROR, nameType) and
+contributes its LLM summary as a secondary description. When the repository has
+nothing for a field, the extraction value is kept as a backfill.
 """
 
 import json
@@ -73,6 +78,7 @@ class MetadataMerger:
         "publicationYear",
         "rightsList",
         "dates",
+        "fundingReferences",
     })
 
     METADATA_FIELDS = [
@@ -132,7 +138,7 @@ class MetadataMerger:
             elif field == "identifiers":
                 result["identifiers"] = self._clean_identifiers(ext_val, meta_val, result)
             elif field == "descriptions":
-                pass
+                result["descriptions"] = self._merge_descriptions(ext_val, meta_val)
             elif field == "conference":
                 result["conference"] = self._merge_conference(ext_val, meta_val)
 
@@ -179,47 +185,91 @@ class MetadataMerger:
             elif isinstance(val, dict) and _is_placeholder(val):
                 del result[field]
 
+    @staticmethod
+    def _name_key(name: str) -> str:
+        """Normalized key for matching the same author across sources."""
+        return (name or "").lower().strip().replace(",", "").replace(".", "")
+
     def _enrich_creators(self, ext_creators: List, meta_creators: List) -> List:
-        """Enrich extraction creators with ORCIDs/affiliations from metadata."""
-        if not ext_creators:
-            return meta_creators
+        """Repository creators are authoritative for names and ordering.
+
+        The depositor curated the author list, so the repository (Zenodo/
+        Figshare) creators are the base: their names, order, nameType and
+        affiliation text are kept as-is. poster2json extraction only ENRICHES
+        each repository creator with identifiers it resolved that the deposit
+        is missing — ORCID (nameIdentifiers), ROR (affiliationIdentifier) and,
+        as a last resort, nameType. It never overwrites a curated value.
+        """
         if not meta_creators:
             return ext_creators
+        if not ext_creators:
+            return meta_creators
 
-        # Index metadata creators by normalized name
-        meta_by_name = {}
-        for mc in meta_creators:
-            if isinstance(mc, dict) and mc.get("name"):
-                key = mc["name"].lower().strip().replace(",", "").replace(".", "")
-                meta_by_name[key] = mc
+        # Index extraction creators by normalized name for enrichment lookup
+        ext_by_name = {}
+        for ec in ext_creators:
+            if isinstance(ec, dict) and ec.get("name"):
+                ext_by_name[self._name_key(ec["name"])] = ec
 
         enriched = []
-        for ec in ext_creators:
-            if not isinstance(ec, dict):
-                enriched.append(ec)
+        for mc in meta_creators:
+            if not isinstance(mc, dict):
+                enriched.append(mc)
                 continue
 
-            creator = dict(ec)
-            name = creator.get("name", "")
-            key = name.lower().strip().replace(",", "").replace(".", "")
-
-            match = meta_by_name.get(key)
+            creator = dict(mc)
+            match = ext_by_name.get(self._name_key(creator.get("name", "")))
             if match:
-                # Backfill ORCID
+                # ORCID / other identifiers — only when the deposit has none
                 if not creator.get("nameIdentifiers") and match.get("nameIdentifiers"):
                     creator["nameIdentifiers"] = match["nameIdentifiers"]
-                # Backfill familyName/givenName
-                if not creator.get("familyName") and match.get("familyName"):
-                    creator["familyName"] = match["familyName"]
-                if not creator.get("givenName") and match.get("givenName"):
-                    creator["givenName"] = match["givenName"]
-                # Backfill affiliation only if extraction has none
-                if not creator.get("affiliation") and match.get("affiliation"):
-                    creator["affiliation"] = match["affiliation"]
+                # nameType — only when the deposit left it unset
+                if not creator.get("nameType") and match.get("nameType"):
+                    creator["nameType"] = match["nameType"]
+                # Affiliation: backfill if the deposit has none, otherwise graft
+                # ROR identifiers onto the deposit's affiliation text.
+                creator["affiliation"] = self._enrich_affiliations(
+                    creator.get("affiliation"), match.get("affiliation")
+                )
 
             enriched.append(creator)
 
         return enriched
+
+    def _enrich_affiliations(self, meta_affs, ext_affs):
+        """Keep repository affiliation text; graft ROR identifiers from extraction.
+
+        Repository affiliation text wins. If the repository has no affiliation,
+        backfill from extraction. Where names match and the repository entry
+        lacks a ROR id, copy the affiliationIdentifier resolved by poster2json.
+        """
+        if not meta_affs:
+            return ext_affs if ext_affs else meta_affs
+        if not ext_affs:
+            return meta_affs
+
+        # Index extraction affiliations that carry a resolved identifier
+        ext_ror = {}
+        for ea in ext_affs:
+            if isinstance(ea, dict) and ea.get("affiliationIdentifier") and ea.get("name"):
+                ext_ror[ea["name"].strip().lower()] = ea
+
+        out = []
+        for ma in meta_affs:
+            if not isinstance(ma, dict):
+                out.append(ma)
+                continue
+            aff = dict(ma)
+            if not aff.get("affiliationIdentifier"):
+                m = ext_ror.get(aff.get("name", "").strip().lower())
+                if m:
+                    aff["affiliationIdentifier"] = m["affiliationIdentifier"]
+                    if m.get("affiliationIdentifierScheme"):
+                        aff["affiliationIdentifierScheme"] = m["affiliationIdentifierScheme"]
+                    if m.get("schemeUri"):
+                        aff["schemeUri"] = m["schemeUri"]
+            out.append(aff)
+        return out
 
     def _merge_subjects(self, ext_subjects: List, meta_subjects: List) -> List:
         """Union of subjects, case-insensitive dedup."""
@@ -311,19 +361,41 @@ class MetadataMerger:
         return result
 
     def _merge_descriptions(self, ext_descs: List, meta_descs: List) -> List:
-        """Keep extraction descriptions, add unique metadata descriptions."""
-        seen = set()
-        merged = list(ext_descs or [])
-        for d in merged:
-            if isinstance(d, dict) and d.get("description"):
-                seen.add(d["description"].strip()[:100].lower())
+        """Repository deposit description is the primary Abstract.
 
+        The depositor's own description (Zenodo/Figshare) leads as the
+        authoritative Abstract. The poster2json LLM-generated summary is
+        retained, but demoted to a secondary description of type "Other" so
+        it remains searchable without competing with the curated abstract.
+
+        This method only runs when the repository has a description; if the
+        deposit has none, the merge loop keeps the extraction summary as-is
+        (still typed Abstract), so a missing deposit abstract is not lost.
+        """
+        def _key(d):
+            return d.get("description", "").strip()[:120].lower()
+
+        seen = set()
+        merged = []
+
+        # Repository descriptions first — the authoritative Abstract(s)
         for d in (meta_descs or []):
             if isinstance(d, dict) and d.get("description"):
-                key = d["description"].strip()[:100].lower()
-                if key not in seen:
-                    seen.add(key)
+                k = _key(d)
+                if k and k not in seen:
+                    seen.add(k)
                     merged.append(d)
+
+        # Extraction summary kept as a secondary "Other" description
+        for d in (ext_descs or []):
+            if isinstance(d, dict) and d.get("description"):
+                k = _key(d)
+                if k and k not in seen:
+                    seen.add(k)
+                    secondary = dict(d)
+                    secondary["descriptionType"] = "Other"
+                    merged.append(secondary)
+
         return merged
 
     def merge_files(self, extraction_file: str, metadata_file: str, output_file: str) -> Dict:

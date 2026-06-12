@@ -75,6 +75,22 @@ def _extract_year_from_text(text: str) -> Optional[int]:
     return None
 
 
+def _zenodo_name_type(creator: Dict) -> str:
+    """Map a Zenodo creator's person/org type to a DataCite nameType.
+
+    Newer Zenodo (InvenioRDM) records carry person_or_org.type
+    ("personal"/"organizational"); some legacy records carry a flat "type".
+    Default to "Personal" when nothing is declared.
+    """
+    raw = (creator.get("type")
+           or creator.get("person_or_org", {}).get("type")
+           or "")
+    raw = str(raw).strip().lower()
+    if raw in ("organizational", "organization", "org"):
+        return "Organizational"
+    return "Personal"
+
+
 def _strip_timestamp(date_str: str) -> str:
     """Strip time portion from ISO timestamp, returning YYYY-MM-DD."""
     if not date_str:
@@ -151,7 +167,7 @@ class SchemaConverter:
             name = _clean_html(creator.get("name", ""))
             creator_entry = {
                 "name": name,
-                "nameType": "Personal",
+                "nameType": _zenodo_name_type(creator),
             }
             # Split "Family, Given" if present
             if "," in name:

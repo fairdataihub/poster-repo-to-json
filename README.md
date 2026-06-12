@@ -19,26 +19,29 @@ poster.pdf ──► poster2json ──► scaffold JSON ──► merge ──�
                                                    ▲
                                                    │
 Zenodo/Figshare metadata ──► SchemaConverter ──────┘
-                                               (backfill)
+                                          (curated fields win)
 ```
 
-**poster2json output is PRIMARY.** Repository metadata only fills in fields that poster2json left empty or is authoritative for (conference name/dates, DOIs, licenses, funding, etc.). The extracted poster content (title, abstract, sections, captions) is gospel.
+**poster2json owns the poster content; the depositor owns the curated metadata.** Extracted poster content (title, sections, captions, research field) is gospel. For fields the depositor curated on the repository record — the author list and ordering, the deposit description, funding, publication year, dates, rights, conference — repository metadata wins when present, and poster2json only *enriches* it (e.g. grafting resolved ORCID/ROR identifiers onto the curated authors). When the repository has nothing for a field, the extraction value is kept as a backfill.
 
-### Merge Rules (staging branch)
+### Merge Rules
 
 | Field | Source of truth |
 |-------|----------------|
-| `titles`, `descriptions`, `content`, `imageCaptions`, `tableCaptions` | **Extraction only** (never overwritten) |
+| `titles`, `content`, `imageCaptions`, `tableCaptions`, `researchField` | **Extraction only** (never overwritten) |
 | `conference` | **Metadata supersedes extraction** (LLM hallucinates conferences; repositories have authoritative data) |
 | `identifiers` | **Metadata only** (real poster DOI + record ID). DOIs found in poster text get moved to `relatedIdentifiers` with `relationType: "References"` |
-| `dates`, `language`, `types`, `rightsList`, `fundingReferences`, `publisher` | Extraction base, metadata backfill if missing |
-| `creators` | Extraction base; metadata backfills ORCIDs, affiliations |
+| `publicationYear`, `dates`, `rightsList`, `fundingReferences` | **Metadata wins** when present; extraction backfills only when the deposit has nothing |
+| `creators` | **Metadata wins** for names and ordering (depositor-curated). Extraction enriches each creator with resolved ORCID (`nameIdentifiers`), ROR (`affiliationIdentifier`) and `nameType` — never overwriting a curated value |
+| `descriptions` | **Repository deposit description is the primary `Abstract`.** The poster2json LLM summary is retained but demoted to a secondary description of type `Other`. If the deposit has no description, the extraction summary stays as the `Abstract` |
+| `language`, `types`, `publisher` | Extraction base, metadata backfill if missing |
 | `subjects` | Union of both (deduped, case-insensitive) |
+
+`nameType` on converted Zenodo creators reflects the record's `person_or_org.type` when present (`organizational` → `Organizational`), defaulting to `Personal`.
 
 ### Quality Enforcement
 
-- **Single description only** — schema expects one abstract; if the LLM dumps multiple description entries, the merger keeps only the first `Abstract`-typed one.
-- **Post-batch QC** (`scripts/post_batch_qc.py`) writes a TSV of failed extractions for retry (multi-description, no-content, corrupt JSON, OCR failures).
+- **Post-batch QC** (`scripts/post_batch_qc.py`) writes a TSV of failed extractions for retry (no-content, corrupt JSON, OCR failures).
 
 ## Installation
 
