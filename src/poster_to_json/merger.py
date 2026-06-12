@@ -187,8 +187,14 @@ class MetadataMerger:
 
     @staticmethod
     def _name_key(name: str) -> str:
-        """Normalized key for matching the same author across sources."""
-        return (name or "").lower().strip().replace(",", "").replace(".", "")
+        """Order-insensitive normalized key for matching the same author across sources.
+
+        Extraction often yields "Given Family" while repositories yield
+        "Family, Given"; sorting the tokens lets both forms match.
+        """
+        cleaned = (name or "").lower().replace(",", " ").replace(".", " ")
+        tokens = [t for t in cleaned.split() if t]
+        return " ".join(sorted(tokens))
 
     def _enrich_creators(self, ext_creators: List, meta_creators: List) -> List:
         """Repository creators are authoritative for names and ordering.
