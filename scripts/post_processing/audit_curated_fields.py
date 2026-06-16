@@ -59,6 +59,8 @@ def main():
                 c = json.loads(cf.read_text(encoding="utf-8"))
             except Exception:
                 continue
+            if not isinstance(m, dict) or not isinstance(c, dict):
+                continue
             total += 1
 
             mdesc = m.get("descriptions") or []

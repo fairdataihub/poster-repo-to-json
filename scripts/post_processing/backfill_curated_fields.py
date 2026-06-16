@@ -160,13 +160,17 @@ def run(merged_dir: Path, converted_dir: Path, dry_run: bool, limit: int) -> dic
 
         try:
             merged = json.loads(merged_path.read_text(encoding="utf-8"))
-            if "error" in merged:
-                stats["unchanged"] += 1
-                continue
             converted = json.loads(conv_path.read_text(encoding="utf-8"))
         except Exception as e:
             logger.error(f"  read error {rec_id}: {e}")
             stats["errors"] += 1
+            continue
+
+        if not isinstance(merged, dict) or not isinstance(converted, dict):
+            stats["unchanged"] += 1
+            continue
+        if "error" in merged:
+            stats["unchanged"] += 1
             continue
 
         try:
