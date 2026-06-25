@@ -81,6 +81,15 @@ class MetadataMerger:
         "fundingReferences",
     })
 
+    # Fields the extraction must NEVER contribute. The license/rights of a
+    # poster come only from the repository deposit (or the platform downstream),
+    # never from the LLM reading the poster. If the deposit declares no license,
+    # any extraction-fabricated rightsList is dropped rather than kept — older
+    # extractions misfiled funding/acknowledgements/citations into rights.
+    DEPOSIT_ONLY_FIELDS = frozenset({
+        "rightsList",
+    })
+
     METADATA_FIELDS = [
         "$schema",
         "identifiers",
@@ -125,6 +134,10 @@ class MetadataMerger:
             meta_val = metadata.get(field)
 
             if meta_val is None or _is_empty(meta_val):
+                # Deposit offers nothing. For deposit-only fields, also remove
+                # any extraction value so a fabricated license can't survive.
+                if field in self.DEPOSIT_ONLY_FIELDS:
+                    result.pop(field, None)
                 continue  # metadata has nothing to offer
 
             if field in self.METADATA_AUTHORITATIVE_FIELDS:

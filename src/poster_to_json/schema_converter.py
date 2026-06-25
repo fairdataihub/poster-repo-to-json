@@ -75,6 +75,49 @@ def _extract_year_from_text(text: str) -> Optional[int]:
     return None
 
 
+# Canonical forms for license identifiers the repositories report in varied
+# casing/spelling. Keyed by lowercased input.
+_LICENSE_ALIASES = {
+    "mit": "MIT", "mit-license": "MIT", "the-mit-license": "MIT",
+    "apache-2.0": "Apache-2.0", "apache2.0": "Apache-2.0", "apache 2.0": "Apache-2.0",
+    "gpl-3.0": "GPL-3.0", "gpl-3.0-only": "GPL-3.0", "gpl3": "GPL-3.0", "gplv3": "GPL-3.0",
+    "gpl-2.0": "GPL-2.0", "gpl-2.0-only": "GPL-2.0", "gpl2": "GPL-2.0",
+    "lgpl-3.0": "LGPL-3.0", "lgpl-2.1": "LGPL-2.1",
+    "bsd-2-clause": "BSD-2-Clause", "bsd-3-clause": "BSD-3-Clause",
+    "mpl-2.0": "MPL-2.0", "isc": "ISC", "unlicense": "Unlicense",
+    "cc0-1.0": "CC0-1.0", "cc-zero": "CC0-1.0", "cc0": "CC0-1.0", "zero": "CC0-1.0",
+}
+
+# Zenodo's own non-SPDX license categories — kept verbatim (lowercase).
+_ZENODO_CATEGORIES = frozenset({
+    "other-open", "other-pd", "other-nc", "other-closed", "other-at",
+})
+
+
+def _normalize_license_id(raw) -> Optional[str]:
+    """Canonicalize a repository-declared license identifier.
+
+    Maps known aliases (mit-license -> MIT), canonicalizes CC/SPDX casing
+    (cc-by-4.0 -> CC-BY-4.0), keeps Zenodo other-* categories, and otherwise
+    returns the deposit's value verbatim (it is repository-controlled, so even
+    an unrecognized id is a real declaration). Returns None for empty input.
+    """
+    if not raw or not isinstance(raw, str):
+        return None
+    s = raw.strip()
+    if not s:
+        return None
+    low = s.lower()
+    if low in _LICENSE_ALIASES:
+        return _LICENSE_ALIASES[low]
+    if low in _ZENODO_CATEGORIES:
+        return low
+    canon = re.sub(r"[\s_]+", "-", s).upper()
+    if canon.startswith("CC-") or canon.startswith("CC0"):
+        return canon
+    return s
+
+
 def _zenodo_name_type(creator: Dict) -> str:
     """Map a Zenodo creator's person/org type to a DataCite nameType.
 
@@ -245,13 +288,32 @@ class SchemaConverter:
         if language:
             result["language"] = _normalize_language(language)
 
-        # License
+        # License — legacy metadata.license ({id} or str) and/or InvenioRDM
+        # metadata.rights ([{id|title}, ...]). Normalize ids; dedup.
+        rights_entries = []
         license_info = metadata.get("license")
-        if license_info:
-            result["rightsList"] = [{
-                "rights": license_info.get("id", ""),
-                "rightsIdentifier": license_info.get("id", ""),
-            }]
+        if isinstance(license_info, dict):
+            lid = _normalize_license_id(license_info.get("id"))
+            if lid:
+                rights_entries.append({"rights": lid, "rightsIdentifier": lid})
+        elif isinstance(license_info, str):
+            lid = _normalize_license_id(license_info)
+            if lid:
+                rights_entries.append({"rights": lid, "rightsIdentifier": lid})
+        for r in (metadata.get("rights") or []):
+            if isinstance(r, dict):
+                lid = _normalize_license_id(r.get("id") or r.get("title"))
+                if lid:
+                    rights_entries.append({"rights": lid, "rightsIdentifier": lid})
+        if rights_entries:
+            seen = set()
+            deduped = []
+            for e in rights_entries:
+                k = e["rightsIdentifier"].lower()
+                if k not in seen:
+                    seen.add(k)
+                    deduped.append(e)
+            result["rightsList"] = deduped
 
         # Conference/Meeting information
         meeting = metadata.get("meeting", {})
@@ -477,12 +539,14 @@ class SchemaConverter:
         if subjects:
             result["subjects"] = subjects
 
-        # License
+        # License — normalize the Figshare license name to a canonical id.
         license_info = record.get("license")
-        if license_info:
+        if isinstance(license_info, dict):
             rights_entry = {}
-            if license_info.get("name"):
-                rights_entry["rights"] = license_info["name"]
+            lid = _normalize_license_id(license_info.get("name"))
+            if lid:
+                rights_entry["rights"] = lid
+                rights_entry["rightsIdentifier"] = lid
             if license_info.get("url"):
                 rights_entry["rightsUri"] = license_info["url"]
             if rights_entry:

@@ -31,7 +31,8 @@ Zenodo/Figshare metadata ──► SchemaConverter ──────┘
 | `titles`, `content`, `imageCaptions`, `tableCaptions`, `researchField` | **Extraction only** (never overwritten) |
 | `conference` | **Metadata supersedes extraction** (LLM hallucinates conferences; repositories have authoritative data) |
 | `identifiers` | **Metadata only** (real poster DOI + record ID). DOIs found in poster text get moved to `relatedIdentifiers` with `relationType: "References"` |
-| `publicationYear`, `dates`, `rightsList`, `fundingReferences` | **Metadata wins** when present; extraction backfills only when the deposit has nothing |
+| `publicationYear`, `dates`, `fundingReferences` | **Metadata wins** when present; extraction backfills only when the deposit has nothing |
+| `rightsList` | **Deposit-only.** The license comes solely from the repository deposit (normalized: `mit-license`→`MIT`, `cc-by-4.0`→`CC-BY-4.0`, Zenodo `other-*` kept). If the deposit declares no license, any extraction value is **dropped** — the LLM must never set a license |
 | `creators` | **Metadata wins** for names and ordering (depositor-curated). Extraction enriches each creator with resolved ORCID (`nameIdentifiers`), ROR (`affiliationIdentifier`) and `nameType` — never overwriting a curated value |
 | `descriptions` | **Repository deposit description is the primary `Abstract`.** The poster2json LLM summary is retained but demoted to a secondary description of type `Other`. If the deposit has no description, the extraction summary stays as the `Abstract` |
 | `language`, `types`, `publisher` | Extraction base, metadata backfill if missing |
