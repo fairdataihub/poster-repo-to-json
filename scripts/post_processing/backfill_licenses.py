@@ -89,13 +89,23 @@ def deposit_rights(src, rid, conv_dir, meta_dir):
     return None, None
 
 
-def run(root, meta_dir, dry_run, limit):
+def _compact(rights):
+    if not rights:
+        return "(none)"
+    return ", ".join(
+        (e.get("rightsIdentifier") or e.get("rights") or "?") if isinstance(e, dict) else str(e)
+        for e in rights
+    )
+
+
+def run(root, meta_dir, dry_run, limit, show=0):
     merged_dir = root / "merged"
     conv_dir = root / "converted"
     stats = {
         "scanned": 0, "rights_set": 0, "rights_removed": 0, "unchanged": 0,
         "indeterminate": 0, "no_merged_file": 0, "errors": 0,
     }
+    shown = 0
 
     for src in ("zenodo", "figshare"):
         md = merged_dir / src
@@ -125,11 +135,19 @@ def run(root, meta_dir, dry_run, limit):
             changed = False
             if rights:
                 if current != rights:
+                    if show and shown < show:
+                        logger.info(f"  CHANGE {src}/{rid}: [{_compact(current)}] -> "
+                                    f"[{_compact(rights)}]  (src={source})")
+                        shown += 1
                     merged["rightsList"] = rights
                     stats["rights_set"] += 1
                     changed = True
             else:
                 if "rightsList" in merged:
+                    if show and shown < show:
+                        logger.info(f"  REMOVE {src}/{rid}: [{_compact(current)}] -> (none)"
+                                    f"  (src={source})")
+                        shown += 1
                     del merged["rightsList"]
                     stats["rights_removed"] += 1
                     changed = True
@@ -158,6 +176,8 @@ def main():
                     help="raw deposit metadata root with <src>/<id>.json (recommended)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--show", type=int, default=0,
+                    help="print before->after for the first N changed records")
     args = ap.parse_args()
 
     if not (args.root / "merged").exists():
@@ -165,7 +185,7 @@ def main():
 
     mode = "DRY-RUN" if args.dry_run else "LIVE"
     logger.info(f"[{mode}] backfill licenses  root={args.root}  metadata={args.metadata_dir}")
-    stats = run(args.root, args.metadata_dir, args.dry_run, args.limit)
+    stats = run(args.root, args.metadata_dir, args.dry_run, args.limit, args.show)
     logger.info("Done:")
     for k in ("scanned", "rights_set", "rights_removed", "unchanged",
               "indeterminate", "errors"):
