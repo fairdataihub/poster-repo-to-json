@@ -23,6 +23,8 @@ from typing import Dict, List
 
 from tqdm import tqdm
 
+from .date_normalize import normalize_record_dates
+
 logger = logging.getLogger(__name__)
 
 
@@ -157,6 +159,7 @@ class MetadataMerger:
 
         self._ensure_presented_date(result)
         self._strip_metadata_placeholders(result)
+        normalize_record_dates(result)
 
         return result
 
