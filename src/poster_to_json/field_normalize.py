@@ -177,6 +177,10 @@ def normalize_creators(record: dict) -> bool:
         if n != nm:
             cc["name"] = n
             changed = True
+        for part in ("givenName", "familyName"):
+            if part in cc and _is_placeholder(cc[part]):
+                del cc[part]
+                changed = True
         affs = cc.get("affiliation")
         if isinstance(affs, list):
             new_affs = []
