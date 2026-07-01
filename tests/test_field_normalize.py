@@ -52,6 +52,21 @@ def test_conference_all_junk_dropped():
     print("OK conference: all-junk object removed, record kept")
 
 
+def test_conference_null_and_notfound_dropped():
+    rec = {"conference": {
+        "conferenceName": "Conference Name Not Found",
+        "conferenceEndDate": None,
+        "conferenceLocation": None,
+        "conferenceStartDate": None,
+        "conferenceYear": 2018,
+    }}
+    changed = normalize_conference(rec)
+    assert changed
+    # null sub-values and the "not found" name are gone; real year kept
+    assert rec["conference"] == {"conferenceYear": 2018}, rec["conference"]
+    print("OK conference: null values + 'not found' name dropped")
+
+
 def test_conference_clean_noop():
     rec = {"conference": {"conferenceName": "AGU", "conferenceYear": 2020}}
     assert normalize_conference(rec) is False

@@ -15,13 +15,21 @@ _PLACEHOLDER = frozenset({
     "", "not specified", "unspecified", "not applicable", "n/a", "na",
     "none", "null", "unknown", "not found", "tbd", "tba", "-",
     "name of conference", "conference name", "conference name here",
+    "conference name not found", "conference not found", "no conference",
+    "not available", "not provided", "unnamed conference",
     "city, country", "location", "venue", "conference url",
     "conference organizer or institution name", "institution name",
 })
 
 
 def _is_placeholder(v) -> bool:
-    return isinstance(v, str) and v.strip().lower() in _PLACEHOLDER
+    """True for None or any placeholder/junk string value."""
+    if v is None:
+        return True
+    if not isinstance(v, str):
+        return False
+    s = v.strip().lower()
+    return s in _PLACEHOLDER or "not specified" in s or "not found" in s
 
 
 # Conference sub-fields that hold dates -> ISO-normalize.
