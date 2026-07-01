@@ -14,6 +14,10 @@ from .date_normalize import normalize_date_value, normalize_publication_year
 _URL_RE = re.compile(r"https?://|www\.", re.I)
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
 _ET_AL_RE = re.compile(r"\bet\s*\.?\s*al\b", re.I)
+# Unfilled poster-template author placeholders (e.g. "LastName, FirstName").
+_TEMPLATE_NAME_RE = re.compile(
+    r"\b(lastname|firstname|first ?name|last ?name|author ?name|your ?name|"
+    r"full ?name|name ?here|forename)\b", re.I)
 
 
 def _name_is_lumped(name) -> bool:
@@ -226,7 +230,8 @@ def normalize_creators(record: dict) -> bool:
         n = str(nm).strip() if nm is not None else ""
         low = n.lower()
         if (not n or _is_placeholder(nm) or low.startswith("conference")
-                or _EMAIL_RE.search(n) or _URL_RE.search(n)):
+                or _EMAIL_RE.search(n) or _URL_RE.search(n)
+                or _TEMPLATE_NAME_RE.search(n)):
             changed = True
             continue
         cc = dict(c)

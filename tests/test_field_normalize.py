@@ -138,6 +138,7 @@ def test_creators_drop_clear_junk():
         {"name": "null"},
         {"name": "Conference, Nanostruc2014"},
         {"name": "SARTOR", "givenName": "null"},   # placeholder givenName dropped
+        {"name": "LastName, FirstName"},         # template placeholder dropped
         {"name": "Smith, Jane^1, Doe, K.^2"},   # lumped-but-real: KEPT as-is
     ]}
     assert normalize_creators(rec)
