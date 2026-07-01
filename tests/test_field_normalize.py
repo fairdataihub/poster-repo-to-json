@@ -4,7 +4,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from poster_to_json.field_normalize import normalize_conference
+from poster_to_json.field_normalize import (
+    normalize_conference, normalize_publisher, normalize_subjects,
+    normalize_creators, normalize_formats,
+)
 
 
 def test_conference_drops_placeholders():
@@ -71,6 +74,57 @@ def test_conference_clean_noop():
     rec = {"conference": {"conferenceName": "AGU", "conferenceYear": 2020}}
     assert normalize_conference(rec) is False
     print("OK conference: clean object unchanged (idempotent)")
+
+
+def test_publisher_to_repository():
+    z = {"identifiers": [{"identifier": "10.5281/zenodo.123", "identifierType": "DOI"}],
+         "publisher": {"name": "PosterPresentations.com"}}
+    assert normalize_publisher(z)
+    assert z["publisher"] == {"name": "Zenodo"}
+    fs = {"identifiers": [{"identifier": "10.6084/m9.figshare.9", "identifierType": "DOI"}],
+          "publisher": {"name": "University of X"}}
+    assert normalize_publisher(fs)
+    assert fs["publisher"] == {"name": "Figshare"}
+    # no DOI -> unchanged
+    n = {"publisher": {"name": "Something"}}
+    assert normalize_publisher(n) is False
+    print("OK publisher: set to source repository")
+
+
+def test_subjects_drop_junk_dedup():
+    rec = {"subjects": [
+        {"subject": "Genomics"}, {"subject": "genomics"},   # dup
+        {"subject": "Not specified"},                        # placeholder
+        {"subject": "https://example.com"},                  # url
+        {"subject": "me@x.edu"},                             # email
+        {"subject": "vortex structures, rotating cones"},    # commas kept (no split)
+    ]}
+    assert normalize_creators  # imported
+    assert normalize_subjects(rec)
+    subs = [s["subject"] for s in rec["subjects"]]
+    assert subs == ["Genomics", "vortex structures, rotating cones"], subs
+    print("OK subjects: junk dropped, deduped, no splitting")
+
+
+def test_creators_drop_clear_junk():
+    rec = {"creators": [
+        {"name": "Doe, John", "affiliation": [{"name": "Acme"}, {"name": "Institution Name"}]},
+        {"name": "null"},
+        {"name": "Conference, Nanostruc2014"},
+        {"name": "Smith, Jane^1, Doe, K.^2"},   # lumped-but-real: KEPT as-is
+    ]}
+    assert normalize_creators(rec)
+    names = [c["name"] for c in rec["creators"]]
+    assert names == ["Doe, John", "Smith, Jane^1, Doe, K.^2"], names
+    assert rec["creators"][0]["affiliation"] == [{"name": "Acme"}]  # placeholder aff dropped
+    print("OK creators: clear junk dropped, lumped names kept")
+
+
+def test_formats():
+    rec = {"formats": ["pdf", "PDF", "Poster", "text/html"]}
+    assert normalize_formats(rec)
+    assert rec["formats"] == ["PDF", "HTML"], rec["formats"]
+    print("OK formats: canonicalized, junk dropped, deduped")
 
 
 if __name__ == "__main__":

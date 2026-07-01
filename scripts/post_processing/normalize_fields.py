@@ -22,11 +22,18 @@ _SRC = Path(__file__).resolve().parents[2] / "src"
 if _SRC.exists():
     sys.path.insert(0, str(_SRC))
 
-from poster_to_json.field_normalize import normalize_conference  # noqa: E402
+from poster_to_json.field_normalize import (  # noqa: E402
+    normalize_conference, normalize_publisher, normalize_subjects,
+    normalize_creators, normalize_formats,
+)
 
-# (name, fn) — fn(record) -> changed:bool. Add more as fields are done.
+# (name, fn) — fn(record) -> changed:bool.
 NORMALIZERS = [
     ("conference", normalize_conference),
+    ("publisher", normalize_publisher),
+    ("subjects", normalize_subjects),
+    ("creators", normalize_creators),
+    ("formats", normalize_formats),
 ]
 
 
@@ -50,12 +57,13 @@ def run(merged_dir, dry_run, limit, show):
 
         rec_changed = False
         for name, fn in NORMALIZERS:
-            before = json.dumps(rec.get("conference"), sort_keys=True) if name == "conference" else None
+            before = json.dumps(rec.get(name), sort_keys=True, ensure_ascii=False)
             if fn(rec):
                 per_field[name] += 1
                 rec_changed = True
-                if show and len(samples) < show and name == "conference":
-                    samples.append(f"conference {before} -> {json.dumps(rec.get('conference'), sort_keys=True)}")
+                if show and len(samples) < show:
+                    after = json.dumps(rec.get(name), sort_keys=True, ensure_ascii=False)
+                    samples.append(f"{name}: {before[:110]} -> {after[:110]}")
 
         if rec_changed:
             stats["changed"] += 1
