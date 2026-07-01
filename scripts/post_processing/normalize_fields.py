@@ -55,10 +55,12 @@ def run(merged_dir, dry_run, limit, show):
         if not isinstance(rec, dict):
             continue
 
+        source = f.parent.name  # merged/<zenodo|figshare|extraction_only>/...
         rec_changed = False
         for name, fn in NORMALIZERS:
             before = json.dumps(rec.get(name), sort_keys=True, ensure_ascii=False)
-            if fn(rec):
+            did = fn(rec, source) if name == "publisher" else fn(rec)
+            if did:
                 per_field[name] += 1
                 rec_changed = True
                 if show and len(samples) < show:

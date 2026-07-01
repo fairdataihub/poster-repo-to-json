@@ -100,14 +100,23 @@ def _repository_of(record: dict):
     return None
 
 
-def normalize_publisher(record: dict) -> bool:
+def normalize_publisher(record: dict, source: str = None) -> bool:
     """publisher = the source repository (Zenodo/Figshare), per DataCite convention.
 
     The depositor's/LLM's publisher (an institution, journal, PosterPresentations,
-    etc.) is replaced with the repository. If the repository can't be inferred,
-    the value is left unchanged.
+    etc.) is replaced with the repository. `source` (e.g. the "zenodo"/"figshare"
+    corpus subdir) is authoritative when given; otherwise it's inferred from the
+    DOI. If the repository can't be determined, the value is left unchanged.
     """
-    repo = _repository_of(record)
+    repo = None
+    if source:
+        s = source.strip().lower()
+        if s == "zenodo":
+            repo = "Zenodo"
+        elif s == "figshare":
+            repo = "Figshare"
+    if not repo:
+        repo = _repository_of(record)
     if not repo:
         return False
     want = {"name": repo}
