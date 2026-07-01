@@ -1,4 +1,4 @@
-# poster-repo-to-json (staging)
+# poster-repo-to-json
 
 > **Part of the Machine-Actionable Scientific Poster Initiative**
 
