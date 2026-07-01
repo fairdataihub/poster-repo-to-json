@@ -24,6 +24,7 @@ from typing import Dict, List
 from tqdm import tqdm
 
 from .date_normalize import normalize_record_dates
+from .field_normalize import normalize_conference
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +161,7 @@ class MetadataMerger:
         self._ensure_presented_date(result)
         self._strip_metadata_placeholders(result)
         normalize_record_dates(result)
+        normalize_conference(result)
 
         return result
 
