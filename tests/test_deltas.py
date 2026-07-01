@@ -60,6 +60,25 @@ def test_creators_repo_wins_extraction_enriches():
     print("OK creators: repo order kept, ORCID+ROR enriched")
 
 
+def test_creators_union_adds_missing_extraction_authors():
+    merger = MetadataMerger()
+    extraction = {
+        "titles": [{"title": "T"}],
+        "content": {"sections": [{"sectionTitle": "x", "sectionContent": "y"}]},
+        "creators": [
+            {"name": "Doe, John"},
+            {"name": "Jones, Mary"},          # missing from deposit -> unioned in
+            {"name": "LastName, FirstName"},  # template junk -> excluded
+            {"name": "Conference, XYZ2020"},  # junk -> excluded
+        ],
+    }
+    metadata = {"creators": [{"name": "Doe, John", "nameType": "Personal"}]}
+    out = merger.merge(extraction, metadata)
+    names = [c["name"] for c in out["creators"]]
+    assert names == ["Doe, John", "Jones, Mary"], names
+    print("OK creators: union adds missing real authors, filters junk")
+
+
 def test_subjects_union_dedup():
     merger = MetadataMerger()
     extraction = {

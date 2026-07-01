@@ -57,6 +57,15 @@ def extraction_creators_clean(ext_creators) -> bool:
     return not any(_name_is_lumped(c.get("name")) for c in ded)
 
 
+def creator_addable_to_union(creator) -> bool:
+    """A creator worth unioning in from the extraction: a clean, single,
+    non-junk, non-lumped author name."""
+    if not isinstance(creator, dict):
+        return False
+    name = creator.get("name")
+    return bool(name) and not creator_name_is_junk(name) and not _name_is_lumped(name)
+
+
 def resolve_lumped_creators(deposit_creators, ext_creators):
     """Return the better creator list. When the deposit crammed authors into one
     field but the extraction cleanly separated them, prefer the extraction;
@@ -177,8 +186,33 @@ def normalize_publisher(record: dict, source: str = None) -> bool:
     return False
 
 
+def split_subject(value: str):
+    """Split a lumped keyword string into individual keywords on top-level commas
+    and semicolons. Delimiters inside brackets are ignored, so taxonomy terms
+    like "Business Information Management (incl. Records, Knowledge) not elsewhere
+    classified" stay whole."""
+    parts = []
+    depth = 0
+    cur = ""
+    for ch in value:
+        if ch in "([{":
+            depth += 1
+            cur += ch
+        elif ch in ")]}":
+            depth = max(0, depth - 1)
+            cur += ch
+        elif ch in ",;" and depth == 0:
+            parts.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    parts.append(cur)
+    return [p.strip() for p in parts if p.strip()]
+
+
 def normalize_subjects(record: dict) -> bool:
-    """Drop junk subjects (empty/placeholder/URL/email) and dedup. No splitting."""
+    """Split lumped keywords (top-level comma/semicolon), drop junk
+    (empty/placeholder/URL/email), and dedup."""
     subs = record.get("subjects")
     if not isinstance(subs, list):
         return False
@@ -190,21 +224,22 @@ def normalize_subjects(record: dict) -> bool:
         if not isinstance(val, str):
             changed = True
             continue
-        v = val.strip()
-        if not v or _is_placeholder(v) or _URL_RE.search(v) or _EMAIL_RE.search(v):
+        pieces = split_subject(val)
+        if pieces != [val.strip()]:
             changed = True
-            continue
-        key = v.lower()
-        if key in seen:
-            changed = True
-            continue
-        seen.add(key)
-        entry = {"subject": v}
-        if isinstance(s, dict):
-            entry = {**s, "subject": v}
-        if entry != s:
-            changed = True
-        cleaned.append(entry)
+        for v in pieces:
+            if not v or _is_placeholder(v) or _URL_RE.search(v) or _EMAIL_RE.search(v):
+                changed = True
+                continue
+            key = v.lower()
+            if key in seen:
+                changed = True
+                continue
+            seen.add(key)
+            entry = {"subject": v}
+            if isinstance(s, dict):
+                entry = {**s, "subject": v}
+            cleaned.append(entry)
     if cleaned != subs:
         if cleaned:
             record["subjects"] = cleaned
@@ -212,6 +247,17 @@ def normalize_subjects(record: dict) -> bool:
             record.pop("subjects", None)
         return True
     return changed
+
+
+def creator_name_is_junk(name) -> bool:
+    """A creator name that is clearly not a real author: placeholder, unfilled
+    template, conference/institution-as-author, or a url/email."""
+    n = str(name).strip() if name is not None else ""
+    if not n:
+        return True
+    return (_is_placeholder(name) or n.lower().startswith("conference")
+            or bool(_EMAIL_RE.search(n)) or bool(_URL_RE.search(n))
+            or bool(_TEMPLATE_NAME_RE.search(n)))
 
 
 def normalize_creators(record: dict) -> bool:
@@ -228,10 +274,7 @@ def normalize_creators(record: dict) -> bool:
             continue
         nm = c.get("name")
         n = str(nm).strip() if nm is not None else ""
-        low = n.lower()
-        if (not n or _is_placeholder(nm) or low.startswith("conference")
-                or _EMAIL_RE.search(n) or _URL_RE.search(n)
-                or _TEMPLATE_NAME_RE.search(n)):
+        if creator_name_is_junk(nm):
             changed = True
             continue
         cc = dict(c)

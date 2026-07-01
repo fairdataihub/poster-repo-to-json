@@ -117,19 +117,21 @@ def test_publisher_to_repository():
     print("OK publisher: set to source repository")
 
 
-def test_subjects_drop_junk_dedup():
+def test_subjects_split_dedup_and_preserve_taxonomy():
     rec = {"subjects": [
         {"subject": "Genomics"}, {"subject": "genomics"},   # dup
         {"subject": "Not specified"},                        # placeholder
-        {"subject": "https://example.com"},                  # url
-        {"subject": "me@x.edu"},                             # email
-        {"subject": "vortex structures, rotating cones"},    # commas kept (no split)
+        {"subject": "vortex structures, rotating cones; Taylor vortices"},  # split
+        {"subject": "Business Information Management (incl. Records, Knowledge) not elsewhere classified"},  # FoR: keep whole
     ]}
-    assert normalize_creators  # imported
     assert normalize_subjects(rec)
     subs = [s["subject"] for s in rec["subjects"]]
-    assert subs == ["Genomics", "vortex structures, rotating cones"], subs
-    print("OK subjects: junk dropped, deduped, no splitting")
+    assert subs == [
+        "Genomics",
+        "vortex structures", "rotating cones", "Taylor vortices",
+        "Business Information Management (incl. Records, Knowledge) not elsewhere classified",
+    ], subs
+    print("OK subjects: comma/semicolon split, dedup, taxonomy (paren) preserved")
 
 
 def test_creators_drop_clear_junk():

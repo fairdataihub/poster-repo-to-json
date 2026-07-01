@@ -27,6 +27,7 @@ from .date_normalize import normalize_record_dates
 from .field_normalize import (
     normalize_conference, normalize_publisher, normalize_subjects,
     normalize_creators, normalize_formats, resolve_lumped_creators,
+    creator_addable_to_union,
 )
 
 logger = logging.getLogger(__name__)
@@ -271,6 +272,19 @@ class MetadataMerger:
                 )
 
             enriched.append(creator)
+
+        # Union: append extraction authors the deposit is missing (deduped by
+        # normalized name, junk filtered). The deposit list is sometimes
+        # incomplete; the LLM read of the byline can add real authors.
+        meta_keys = {self._name_key(mc.get("name", "")) for mc in meta_creators
+                     if isinstance(mc, dict)}
+        for ec in ext_creators:
+            if not creator_addable_to_union(ec):
+                continue
+            key = self._name_key(ec.get("name", ""))
+            if key and key not in meta_keys:
+                meta_keys.add(key)
+                enriched.append(ec)
 
         return enriched
 

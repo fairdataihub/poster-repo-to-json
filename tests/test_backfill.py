@@ -55,7 +55,7 @@ def main():
                                   "affiliationIdentifier": "https://ror.org/05acme",
                                   "affiliationIdentifierScheme": "ROR"}]},
                 {"name": "John Doe", "nameType": "Personal"},
-                {"name": "Hallucinated, Author"},
+                {"name": "Extra, Realauthor"},   # not in deposit -> unioned in
             ],
             "descriptions": [{"description": "LLM generated summary text.",
                               "descriptionType": "Abstract"}],
@@ -72,9 +72,10 @@ def main():
 
         out = json.loads((root / "merged" / "zenodo" / f"{rec}_complete.json").read_text())
 
-        # creators: deposit order (Doe, Smith), hallucinated author gone
+        # creators: deposit order (Doe, Smith), plus the extraction-only author
+        # unioned in after the curated ones
         names = [c["name"] for c in out["creators"]]
-        assert names == ["Doe, John", "Smith, Jane"], names
+        assert names == ["Doe, John", "Smith, Jane", "Extra, Realauthor"], names
         # ROR/ORCID enrichment carried over onto curated Smith despite name-order diff
         smith = out["creators"][1]
         assert smith["nameIdentifiers"][0]["nameIdentifier"] == "0000-0002-1111-2222", smith
