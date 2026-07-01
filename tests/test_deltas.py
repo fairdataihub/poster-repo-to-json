@@ -66,7 +66,7 @@ def test_creators_union_adds_missing_extraction_authors():
         "titles": [{"title": "T"}],
         "content": {"sections": [{"sectionTitle": "x", "sectionContent": "y"}]},
         "creators": [
-            {"name": "Doe, John"},
+            {"name": "Doe, J."},              # same person as deposit (initial) -> NOT dup-added
             {"name": "Jones, Mary"},          # missing from deposit -> unioned in
             {"name": "LastName, FirstName"},  # template junk -> excluded
             {"name": "Conference, XYZ2020"},  # junk -> excluded
@@ -76,7 +76,7 @@ def test_creators_union_adds_missing_extraction_authors():
     out = merger.merge(extraction, metadata)
     names = [c["name"] for c in out["creators"]]
     assert names == ["Doe, John", "Jones, Mary"], names
-    print("OK creators: union adds missing real authors, filters junk")
+    print("OK creators: union adds missing authors, filters junk, no surname dups")
 
 
 def test_subjects_union_dedup():

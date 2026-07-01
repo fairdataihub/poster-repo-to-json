@@ -8,8 +8,34 @@ Each normalizer mutates a record in place and returns True if it changed.
 Currently: conference. (creators, subjects, publisher, formats to follow.)
 """
 import re
+import unicodedata
 
 from .date_normalize import normalize_date_value, normalize_publication_year
+
+
+def _clean_name(name) -> str:
+    n = unicodedata.normalize("NFKD", str(name or ""))
+    n = "".join(c for c in n if not unicodedata.combining(c))
+    return re.sub(r"[^a-zA-Z ,]", " ", n).lower()
+
+
+def name_tokens(name) -> set:
+    """Accent-stripped alpha tokens (len>=2) of a name."""
+    return {t for t in _clean_name(name).replace(",", " ").split() if len(t) >= 2}
+
+
+def creator_surnames(name) -> set:
+    """Best-guess surname tokens: the pre-comma segment ("Surname, Given"), or the
+    last token for "Given Surname". Used to match an extraction author against
+    existing creators so the same person isn't double-added under a different
+    name form (initials/accents/order)."""
+    n = _clean_name(name)
+    if "," in n:
+        toks = [t for t in n.split(",", 1)[0].split() if len(t) >= 2]
+    else:
+        toks = [t for t in n.split() if len(t) >= 2]
+        toks = toks[-1:] if toks else []
+    return set(toks)
 
 _URL_RE = re.compile(r"https?://|www\.", re.I)
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")

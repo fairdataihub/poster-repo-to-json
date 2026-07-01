@@ -24,12 +24,9 @@ _SRC = Path(__file__).resolve().parents[2] / "src"
 if _SRC.exists():
     sys.path.insert(0, str(_SRC))
 
-from poster_to_json.field_normalize import creator_addable_to_union  # noqa: E402
-
-
-def _name_key(name):
-    cleaned = (name or "").lower().replace(",", " ").replace(".", " ")
-    return " ".join(sorted(t for t in cleaned.split() if t))
+from poster_to_json.field_normalize import (  # noqa: E402
+    creator_addable_to_union, creator_surnames, name_tokens,
+)
 
 
 def build_ext_index(ext_dir):
@@ -75,16 +72,18 @@ def run(merged_dir, ext_dir, dry_run, limit, show):
                 stats["errors"] += 1
                 continue
             ecre = (ext.get("creators") if isinstance(ext, dict) else None) or []
-            mkeys = {_name_key(c.get("name", "")) for c in mcre
-                     if isinstance(c, dict) and c.get("name")}
+            surnames = set()
+            for c in mcre:
+                if isinstance(c, dict):
+                    surnames |= creator_surnames(c.get("name", ""))
             added = []
             for ec in ecre:
                 if not creator_addable_to_union(ec):
                     continue
-                k = _name_key(ec.get("name", ""))
-                if k and k not in mkeys:
-                    mkeys.add(k)
-                    added.append(ec)
+                if surnames & name_tokens(ec.get("name", "")):
+                    continue
+                surnames |= creator_surnames(ec.get("name", ""))
+                added.append(ec)
             if added:
                 merged["creators"] = mcre + added
                 stats["changed"] += 1
