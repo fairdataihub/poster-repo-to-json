@@ -11,7 +11,7 @@ Pipeline:
 Output conforms to poster_schema.json (DataCite-based with poster extensions).
 """
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 from .extractor import PosterExtractor
 from .schema_converter import SchemaConverter, load_bundled_schema

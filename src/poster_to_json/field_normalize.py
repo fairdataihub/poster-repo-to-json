@@ -13,6 +13,53 @@ from .date_normalize import normalize_date_value, normalize_publication_year
 
 _URL_RE = re.compile(r"https?://|www\.", re.I)
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
+_ET_AL_RE = re.compile(r"\bet\s*\.?\s*al\b", re.I)
+
+
+def _name_is_lumped(name) -> bool:
+    """A single creator name that actually crams in multiple authors."""
+    if not isinstance(name, str):
+        return False
+    n = name.strip()
+    return n.count(",") >= 3 or bool(_ET_AL_RE.search(n)) or (len(n) > 60 and n.count(",") >= 2)
+
+
+def creators_are_lumped(creators) -> bool:
+    """Deposit creators where authors are crammed into one/few name fields."""
+    real = [c for c in (creators or []) if isinstance(c, dict) and c.get("name")]
+    return bool(real) and any(_name_is_lumped(c.get("name")) for c in real)
+
+
+def _dedup_creators(creators):
+    seen = set()
+    out = []
+    for c in creators or []:
+        if not isinstance(c, dict):
+            continue
+        nm = str(c.get("name", "")).strip()
+        key = nm.lower()
+        if nm and key not in seen:
+            seen.add(key)
+            out.append(c)
+    return out
+
+
+def extraction_creators_clean(ext_creators) -> bool:
+    """True if the extraction has properly-separated authors usable to replace a
+    lumped deposit: dedups to >=2 distinct names, none of them itself lumped."""
+    ded = _dedup_creators(ext_creators)
+    if len(ded) < 2:
+        return False
+    return not any(_name_is_lumped(c.get("name")) for c in ded)
+
+
+def resolve_lumped_creators(deposit_creators, ext_creators):
+    """Return the better creator list. When the deposit crammed authors into one
+    field but the extraction cleanly separated them, prefer the extraction;
+    otherwise keep the deposit."""
+    if creators_are_lumped(deposit_creators) and extraction_creators_clean(ext_creators):
+        return _dedup_creators(ext_creators)
+    return deposit_creators
 
 _PLACEHOLDER = frozenset({
     "", "not specified", "unspecified", "not applicable", "n/a", "na",

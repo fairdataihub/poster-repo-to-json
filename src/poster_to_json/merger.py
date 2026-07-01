@@ -26,7 +26,7 @@ from tqdm import tqdm
 from .date_normalize import normalize_record_dates
 from .field_normalize import (
     normalize_conference, normalize_publisher, normalize_subjects,
-    normalize_creators, normalize_formats,
+    normalize_creators, normalize_formats, resolve_lumped_creators,
 )
 
 logger = logging.getLogger(__name__)
@@ -235,6 +235,13 @@ class MetadataMerger:
             return ext_creators
         if not ext_creators:
             return meta_creators
+
+        # Exception to deposit-authority: when the depositor crammed every author
+        # into a single name field but the extraction cleanly separated them,
+        # prefer the extraction's split authors.
+        resolved = resolve_lumped_creators(meta_creators, ext_creators)
+        if resolved is not meta_creators:
+            return resolved
 
         # Index extraction creators by normalized name for enrichment lookup
         ext_by_name = {}

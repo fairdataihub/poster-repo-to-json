@@ -6,8 +6,34 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from poster_to_json.field_normalize import (
     normalize_conference, normalize_publisher, normalize_subjects,
-    normalize_creators, normalize_formats,
+    normalize_creators, normalize_formats, resolve_lumped_creators,
 )
+
+
+def test_lumped_creators_prefer_clean_extraction():
+    # deposit crammed 3 authors + et al into one name; extraction is clean
+    deposit = [{"name": "A. Castillo-Morales, R. Rodriguez-Cardoso, A. Gil de Paz, et al."}]
+    ext = [{"name": "Castillo-Morales, Africa"}, {"name": "Rodriguez Cardoso, Ramon"},
+           {"name": "Gil de Paz, Armando"}]
+    out = resolve_lumped_creators(deposit, ext)
+    assert [c["name"] for c in out] == [c["name"] for c in ext]
+    print("OK lumped: clean extraction preferred over lumped deposit")
+
+
+def test_lumped_creators_keep_deposit_when_extraction_bad():
+    # deposit lumped; extraction is the SAME lumped string duplicated -> keep deposit
+    deposit = [{"name": "Koss, Paul, Piepenburg, Dieter, Teschke, Katharina"}]
+    ext = [{"name": "Kloss, P., Piepenburg, D., Teschke, K."}] * 5
+    out = resolve_lumped_creators(deposit, ext)
+    assert out is deposit  # unchanged
+    print("OK lumped: bad/duplicated extraction rejected, deposit kept")
+
+
+def test_lumped_creators_noop_when_deposit_clean():
+    deposit = [{"name": "Doe, John"}, {"name": "Smith, Jane"}]
+    ext = [{"name": "Doe, J."}, {"name": "Smith, J."}]
+    assert resolve_lumped_creators(deposit, ext) is deposit
+    print("OK lumped: already-clean deposit untouched")
 
 
 def test_conference_drops_placeholders():
