@@ -275,15 +275,21 @@ def normalize_subjects(record: dict) -> bool:
     return changed
 
 
+_ORCID_RE = re.compile(r"\b\d{4}-\d{4}-\d{4}-\d{3}[\dxX]\b")
+
+
 def creator_name_is_junk(name) -> bool:
     """A creator name that is clearly not a real author: placeholder, unfilled
-    template, conference/institution-as-author, or a url/email."""
+    template, conference/institution-as-author, url/email, an ORCID string, or a
+    name with no real (2+ letter) token (bare initials like "M., A" or "D")."""
     n = str(name).strip() if name is not None else ""
     if not n:
         return True
-    return (_is_placeholder(name) or n.lower().startswith("conference")
-            or bool(_EMAIL_RE.search(n)) or bool(_URL_RE.search(n))
-            or bool(_TEMPLATE_NAME_RE.search(n)))
+    if (_is_placeholder(name) or n.lower().startswith("conference")
+            or _EMAIL_RE.search(n) or _URL_RE.search(n) or _TEMPLATE_NAME_RE.search(n)
+            or _ORCID_RE.search(n)):
+        return True
+    return not re.search(r"[A-Za-z]{2,}", n)
 
 
 def normalize_creators(record: dict) -> bool:

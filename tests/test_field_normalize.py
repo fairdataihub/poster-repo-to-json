@@ -141,11 +141,15 @@ def test_creators_drop_clear_junk():
         {"name": "Conference, Nanostruc2014"},
         {"name": "SARTOR", "givenName": "null"},   # placeholder givenName dropped
         {"name": "LastName, FirstName"},         # template placeholder dropped
+        {"name": "D"},                           # bare initial -> junk
+        {"name": "M., A"},                       # initials only -> junk
+        {"name": "0000-0002-1230-5392, 0000-0002-1304-469X"},  # ORCIDs -> junk
+        {"name": "Wu, Li"},                      # short but real -> KEPT
         {"name": "Smith, Jane^1, Doe, K.^2"},   # lumped-but-real: KEPT as-is
     ]}
     assert normalize_creators(rec)
     names = [c["name"] for c in rec["creators"]]
-    assert names == ["Doe, John", "SARTOR", "Smith, Jane^1, Doe, K.^2"], names
+    assert names == ["Doe, John", "SARTOR", "Wu, Li", "Smith, Jane^1, Doe, K.^2"], names
     assert rec["creators"][0]["affiliation"] == [{"name": "Acme"}]  # placeholder aff dropped
     assert "givenName" not in rec["creators"][1]                    # null givenName dropped
     print("OK creators: clear junk dropped, lumped names kept")
