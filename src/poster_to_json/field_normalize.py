@@ -108,6 +108,9 @@ def split_lumped_name(name):
     when the structure is unambiguous. Returns a list of >=2 names, else None
     (leave the name untouched)."""
     s = str(name).strip()
+    # Never split an organisation name ("... Agency for X and Y, Center for Z").
+    if _ORG_RE.search(s):
+        return None
     # 1) explicit multi-author delimiters. Require a "Family, Given" comma in a
     # part, or 3+ multi-word parts, so org names ("Ben and Jerry Foundation")
     # aren't mistaken for an author list.
@@ -166,7 +169,7 @@ _PLACEHOLDER = frozenset({
     "none", "null", "unknown", "not found", "tbd", "tba", "-",
     "name of conference", "conference name", "conference name here",
     "conference name not found", "conference not found", "no conference",
-    "not available", "not provided", "unnamed conference",
+    "not available", "not provided", "unnamed conference", "others", "other",
     "city, country", "location", "venue", "conference url",
     "conference organizer or institution name", "institution name",
 })
