@@ -292,6 +292,24 @@ def creator_name_is_junk(name) -> bool:
     return not re.search(r"[A-Za-z]{2,}", n)
 
 
+_ORG_RE = re.compile(
+    r"\b(universit|institut|college|department|laborator|hospital|clinic|"
+    r"centre|center|school|faculty|academ|gmbh|corporation|company|"
+    r"foundation|ministry|council|society|associat)"
+    r"|\b(ltd|inc|university|college)\b", re.I)
+
+
+def split_name_affiliation(name):
+    """If a creator name has an appended ' - Organisation' (affiliation text that
+    bled into the name field), split it off. Returns (clean_name, affiliation)."""
+    s = str(name)
+    if " - " in s:
+        left, right = s.rsplit(" - ", 1)
+        if left.strip() and _ORG_RE.search(right):
+            return left.strip(), right.strip()
+    return s, None
+
+
 def normalize_creators(record: dict) -> bool:
     """Drop clearly-junk creators and placeholder affiliations. Names/order are
     the deposit's authority (v0.4.0); lumped-but-real names are left as-is."""
@@ -313,6 +331,13 @@ def normalize_creators(record: dict) -> bool:
         if n != nm:
             cc["name"] = n
             changed = True
+        # affiliation text bled into the name field ("Name - University of X")
+        clean_nm, bled_aff = split_name_affiliation(cc.get("name", ""))
+        if bled_aff:
+            cc["name"] = clean_nm
+            changed = True
+            if not cc.get("affiliation"):
+                cc["affiliation"] = [{"name": bled_aff}]
         for part in ("givenName", "familyName"):
             if part in cc and _is_placeholder(cc[part]):
                 del cc[part]

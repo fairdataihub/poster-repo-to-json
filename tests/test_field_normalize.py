@@ -194,6 +194,20 @@ def test_creators_drop_clear_junk():
     print("OK creators: clear junk dropped, lumped names kept")
 
 
+def test_creator_affiliation_bleed_split():
+    rec = {"creators": [
+        {"name": "Arora, Aashay - University of California San Diego"},
+        {"name": "Smith, Jane"},                    # no bleed, untouched
+        {"name": "Wong - Lee, Ming"},               # hyphen, not an org -> untouched
+    ]}
+    assert normalize_creators(rec)
+    assert rec["creators"][0]["name"] == "Arora, Aashay"
+    assert rec["creators"][0]["affiliation"] == [{"name": "University of California San Diego"}]
+    assert rec["creators"][1]["name"] == "Smith, Jane"
+    assert rec["creators"][2]["name"] == "Wong - Lee, Ming"
+    print("OK creators: affiliation-in-name split off to affiliation")
+
+
 def test_formats():
     rec = {"formats": ["pdf", "PDF", "Poster", "text/html"]}
     assert normalize_formats(rec)
