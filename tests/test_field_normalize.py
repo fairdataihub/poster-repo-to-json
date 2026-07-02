@@ -7,8 +7,30 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from poster_to_json.field_normalize import (
     normalize_conference, normalize_publisher, normalize_subjects,
     normalize_creators, normalize_formats, resolve_lumped_creators,
-    same_author, dedup_creators,
+    same_author, dedup_creators, split_lumped_name, normalize_lumped_creators,
 )
+
+
+def test_split_lumped_name():
+    # explicit "and"
+    assert split_lumped_name("Doe, John and Roe, Jane") == ["Doe, John", "Roe, Jane"]
+    # Family, Given pairs
+    assert split_lumped_name("Koss, Paul, Piepenburg, Dieter, Teschke, Katharina") == \
+        ["Koss, Paul", "Piepenburg, Dieter", "Teschke, Katharina"]
+    # list of multi-word full names (needs 3+ commas to count as lumped)
+    assert split_lumped_name("Rabah Abdul Khalek, Valerio Bertone, Alice Khoudli, Emanuele Nocera") == \
+        ["Rabah Abdul Khalek", "Valerio Bertone", "Alice Khoudli", "Emanuele Nocera"]
+    # ambiguous -> leave alone
+    assert split_lumped_name("Cardoso, M, E, G.") is None            # initials, not people
+    assert split_lumped_name("Velazquez Miranda, Santiago. Dept. of Medical Physics") is None
+    print("OK split_lumped_name: clean splits only, ambiguous left")
+
+
+def test_normalize_lumped_creators():
+    rec = {"creators": [{"name": "Doe, John and Roe, Jane"}, {"name": "Smith, Jane"}]}
+    assert normalize_lumped_creators(rec)
+    assert [c["name"] for c in rec["creators"]] == ["Doe, John", "Roe, Jane", "Smith, Jane"]
+    print("OK normalize_lumped_creators: lumped split, others kept")
 
 
 def test_same_author_matching():

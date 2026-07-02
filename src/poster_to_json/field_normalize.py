@@ -92,6 +92,67 @@ def creator_addable_to_union(creator) -> bool:
     return bool(name) and not creator_name_is_junk(name) and not _name_is_lumped(name)
 
 
+def _valid_name_part(p) -> bool:
+    return bool(re.search(r"[A-Za-z]{2,}", str(p))) and not creator_name_is_junk(p)
+
+
+def _looks_given(p) -> bool:
+    """A plausible given-name segment: 1-2 tokens, each a real (2+ letter) word."""
+    toks = str(p).split()
+    return bool(toks) and len(toks) <= 2 and all(
+        len(re.sub(r"[^A-Za-z]", "", t)) >= 2 for t in toks)
+
+
+def split_lumped_name(name):
+    """Split a single lumped multi-author name into individual names, but ONLY
+    when the structure is unambiguous. Returns a list of >=2 names, else None
+    (leave the name untouched)."""
+    s = str(name).strip()
+    # 1) explicit multi-author delimiters. Require a "Family, Given" comma in a
+    # part, or 3+ multi-word parts, so org names ("Ben and Jerry Foundation")
+    # aren't mistaken for an author list.
+    for delim in (r"\s+and\s+", r"\s*&\s*", r"\s*;\s*"):
+        parts = [p.strip() for p in re.split(delim, s) if p.strip()]
+        if len(parts) >= 2 and all(_valid_name_part(p) for p in parts):
+            if any("," in p for p in parts) or (
+                    len(parts) >= 3 and all(len(p.split()) >= 2 for p in parts)):
+                return parts
+    # 2) comma-separated lists
+    if s.count(",") >= 3:
+        parts = [p.strip(" .") for p in s.split(",") if p.strip(" .")]
+        # 2a) list of multi-word full names (each part is already a complete name)
+        if all(len(p.split()) >= 2 and _valid_name_part(p) for p in parts):
+            return parts
+        # 2b) "Family, Given, Family, Given, ..." pairs (single-token parts)
+        if (len(parts) >= 4 and len(parts) % 2 == 0
+                and all(_looks_given(parts[i]) for i in range(1, len(parts), 2))
+                and all(_valid_name_part(parts[i]) for i in range(0, len(parts), 2))):
+            return [f"{parts[i]}, {parts[i + 1]}" for i in range(0, len(parts), 2)]
+    return None
+
+
+def normalize_lumped_creators(record: dict) -> bool:
+    """Split any confidently-splittable lumped creator name into separate
+    creators, in place. Ambiguous lumps are left as-is."""
+    cres = record.get("creators")
+    if not isinstance(cres, list):
+        return False
+    out, changed = [], False
+    for c in cres:
+        nm = c.get("name") if isinstance(c, dict) else None
+        if isinstance(c, dict) and nm:
+            parts = split_lumped_name(nm)
+            if parts:
+                out.extend({"name": p} for p in parts)
+                changed = True
+                continue
+        out.append(c)
+    if changed:
+        record["creators"] = out
+        return True
+    return False
+
+
 def resolve_lumped_creators(deposit_creators, ext_creators):
     """Return the better creator list. When the deposit crammed authors into one
     field but the extraction cleanly separated them, prefer the extraction;
