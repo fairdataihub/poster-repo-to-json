@@ -201,6 +201,10 @@ class SchemaConverter:
         if zenodo_id:
             identifiers.append({"identifier": str(zenodo_id), "identifierType": "Other"})
 
+        handle = record.get("handle") or metadata.get("handle")
+        if handle and str(handle).strip():
+            identifiers.append({"identifier": str(handle).strip(), "identifierType": "Handle"})
+
         if identifiers:
             result["identifiers"] = identifiers
 
@@ -443,6 +447,13 @@ class SchemaConverter:
         figshare_id = record.get("id")
         if figshare_id:
             identifiers.append({"identifier": str(figshare_id), "identifierType": "Other"})
+
+        # Institutional Figshare portals (Leicester, Loughborough, Sheffield,
+        # Middlebury, ...) mint a Handle instead of a DOI. Capture it so these
+        # posters aren't identifier-less.
+        handle = record.get("handle")
+        if handle and str(handle).strip():
+            identifiers.append({"identifier": str(handle).strip(), "identifierType": "Handle"})
 
         if identifiers:
             result["identifiers"] = identifiers

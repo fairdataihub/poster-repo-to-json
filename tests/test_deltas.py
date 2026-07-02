@@ -140,6 +140,20 @@ def test_funding_repo_wins():
     print("OK funding: Zenodo deposit funders win")
 
 
+def test_converter_captures_handle():
+    conv = SchemaConverter()
+    # figshare institutional item: no DOI, but a Handle
+    fs = conv.convert_figshare({"id": 21537753, "doi": "", "handle": "2134/16843648.v1",
+                                "title": "T"})
+    types = {i["identifierType"]: i["identifier"] for i in fs.get("identifiers", [])}
+    assert types.get("Handle") == "2134/16843648.v1", fs.get("identifiers")
+    # zenodo handle (from metadata.handle) also captured
+    z = conv.convert_zenodo({"metadata": {"handle": "10779/x.1", "title": "T"}})
+    ztypes = {i["identifierType"]: i["identifier"] for i in z.get("identifiers", [])}
+    assert ztypes.get("Handle") == "10779/x.1", z.get("identifiers")
+    print("OK converter: Handle identifier captured (figshare + zenodo)")
+
+
 def test_nametype_from_person_or_org():
     assert _zenodo_name_type({"person_or_org": {"type": "organizational"}}) == "Organizational"
     assert _zenodo_name_type({"person_or_org": {"type": "personal"}}) == "Personal"
