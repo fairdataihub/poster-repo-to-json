@@ -350,6 +350,8 @@ def creator_name_is_junk(name) -> bool:
             or _EMAIL_RE.search(n) or _URL_RE.search(n) or _TEMPLATE_NAME_RE.search(n)
             or _ORCID_RE.search(n)):
         return True
+    if re.fullmatch(r"et\s*\.?\s*al\.?", n, re.I):   # "et al" alone is not an author
+        return True
     return not re.search(r"[A-Za-z]{2,}", n)
 
 
