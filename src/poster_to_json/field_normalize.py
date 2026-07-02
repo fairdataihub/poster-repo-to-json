@@ -349,10 +349,35 @@ def _name_signals(name):
             frozenset(t for t in toks if len(t) == 1))
 
 
+def _given_compatible(ga, gb) -> bool:
+    """Positionally compare two given-name token lists: full tokens must match,
+    an initial matches a token with the same first letter, and a shorter list
+    (missing trailing middle names) is fine."""
+    for x, y in zip(ga, gb):
+        if len(x) == 1 or len(y) == 1:
+            if x[0] != y[0]:
+                return False
+        elif x != y:
+            return False
+    return True
+
+
 def same_author(a, b) -> bool:
     """True if two creator names denote the same person under different forms
-    (initials vs full given, accents, family/given order). Conservative: two
-    names that each carry a distinct full given/family token are different."""
+    (initials vs full given, accents, middle initials, family/given order).
+    Conservative: two names that each carry a distinct full given/family token
+    are different."""
+    # Both in "Family, Given" form: compare family exactly, given positionally
+    # (handles middle initials like "G. C." vs "Gina C.").
+    fa_f, fa_g, ha = _fam_given(a)
+    fb_f, fb_g, hb = _fam_given(b)
+    if ha and hb:
+        fam_a = set(_clean_name(fa_f).split())
+        fam_b = set(_clean_name(fb_f).split())
+        if not fam_a or fam_a != fam_b:
+            return False
+        return _given_compatible(_clean_name(fa_g).split(), _clean_name(fb_g).split())
+
     fa, ia = _name_signals(a)
     fb, ib = _name_signals(b)
     if not fa or not fb or not (fa & fb):

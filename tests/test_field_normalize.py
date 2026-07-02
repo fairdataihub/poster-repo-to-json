@@ -17,12 +17,16 @@ def test_same_author_matching():
     assert same_author("Bilodeau, Zoë", "Bilodeau, Zoe")
     assert same_author("Tunnell, Christopher D.", "Tunnell, Christopher")
     assert same_author("Lourenço, A. A.", "Lourenco, Abilio Afonso")
+    assert same_author("Lemos, G. C.", "Lemos, Gina C.")     # middle initial
+    assert same_author("Mace, G. N.", "Mace, Greg")          # extra middle initial
     # different people must NOT match
     assert not same_author("Smith, John", "Smith, Jane")
     assert not same_author("Yadav, P.", "Yadav Kumar")      # initial P != Kumar
     assert not same_author("Yadav, P.", "Yadav, K.")        # different initials
     assert not same_author("John Smith", "John Doe")        # shared given only
-    print("OK same_author: matches forms, rejects distinct authors")
+    assert not same_author("Smith, J. A.", "Smith, J. B.")  # differ on middle initial
+    assert not same_author("Wang, Li", "Wang, Wei")         # same surname, diff given
+    print("OK same_author: matches forms+middle initials, rejects distinct authors")
 
 
 def test_dedup_creators_family_given():
