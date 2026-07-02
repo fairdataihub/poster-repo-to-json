@@ -108,26 +108,30 @@ def split_lumped_name(name):
     when the structure is unambiguous. Returns a list of >=2 names, else None
     (leave the name untouched)."""
     s = str(name).strip()
-    # Never split an organisation name ("... Agency for X and Y, Center for Z").
-    if _ORG_RE.search(s):
-        return None
-    # 1) explicit multi-author delimiters. Require a "Family, Given" comma in a
-    # part, or 3+ multi-word parts, so org names ("Ben and Jerry Foundation")
-    # aren't mistaken for an author list.
-    for delim in (r"\s+and\s+", r"\s*&\s*", r"\s*;\s*"):
-        parts = [p.strip() for p in re.split(delim, s) if p.strip()]
-        if len(parts) >= 2 and all(_valid_name_part(p) for p in parts):
-            if any("," in p for p in parts) or (
-                    len(parts) >= 3 and all(len(p.split()) >= 2 for p in parts)):
-                return parts
+    has_org = bool(_ORG_RE.search(s))
+    # 1) explicit multi-author delimiters. Skipped when an org keyword is present
+    # (a single org "... Agency for X and Y" must not split on "and"). Require a
+    # "Family, Given" comma or 3+ multi-word parts so orgs aren't mis-split.
+    if not has_org:
+        for delim in (r"\s+and\s+", r"\s*&\s*", r"\s*;\s*"):
+            parts = [p.strip() for p in re.split(delim, s) if p.strip()]
+            if len(parts) >= 2 and all(_valid_name_part(p) for p in parts):
+                if any("," in p for p in parts) or (
+                        len(parts) >= 3 and all(len(p.split()) >= 2 for p in parts)):
+                    return parts
     # 2) comma-separated lists
     if s.count(",") >= 3:
         parts = [p.strip(" .") for p in s.split(",") if p.strip(" .")]
-        # 2a) list of multi-word full names (each part is already a complete name)
+        # An org-bearing name may only split if EVERY part is itself an org (a
+        # list of distinct institutions) — not a single org's address ("Univ of
+        # California, Berkeley, Dept of Physics, USA").
+        if has_org and not all(_ORG_RE.search(p) for p in parts):
+            return None
+        # 2a) list of multi-word full names (each part already a complete name)
         if all(len(p.split()) >= 2 and _valid_name_part(p) for p in parts):
             return parts
-        # 2b) "Family, Given, Family, Given, ..." pairs (single-token parts)
-        if (len(parts) >= 4 and len(parts) % 2 == 0
+        # 2b) "Family, Given, Family, Given, ..." pairs (persons, single-token parts)
+        if (not has_org and len(parts) >= 4 and len(parts) % 2 == 0
                 and all(_looks_given(parts[i]) for i in range(1, len(parts), 2))
                 and all(_valid_name_part(parts[i]) for i in range(0, len(parts), 2))):
             return [f"{parts[i]}, {parts[i + 1]}" for i in range(0, len(parts), 2)]

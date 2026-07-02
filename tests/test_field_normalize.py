@@ -23,7 +23,12 @@ def test_split_lumped_name():
     # ambiguous -> leave alone
     assert split_lumped_name("Cardoso, M, E, G.") is None            # initials, not people
     assert split_lumped_name("Velazquez Miranda, Santiago. Dept. of Medical Physics") is None
-    print("OK split_lumped_name: clean splits only, ambiguous left")
+    # organisations: single org never splits; a list of distinct orgs may
+    assert split_lumped_name("Croatian Agency for Agriculture and Food, Center for Food Safety") is None
+    assert split_lumped_name("University of California, Berkeley, Department of Physics, USA") is None
+    assert split_lumped_name("Heidelberg University, University of Macedonia, RI REACH GmbH, AXIA Innovation GmbH") == \
+        ["Heidelberg University", "University of Macedonia", "RI REACH GmbH", "AXIA Innovation GmbH"]
+    print("OK split_lumped_name: clean splits only, single orgs & ambiguous left")
 
 
 def test_normalize_lumped_creators():
