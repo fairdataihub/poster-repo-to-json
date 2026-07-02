@@ -108,6 +108,8 @@ def split_lumped_name(name):
     when the structure is unambiguous. Returns a list of >=2 names, else None
     (leave the name untouched)."""
     s = str(name).strip()
+    if creator_name_is_junk(s):   # e.g. a work-package label, not an author list
+        return None
     has_org = bool(_ORG_RE.search(s))
     # 1) explicit multi-author delimiters. Skipped when an org keyword is present
     # (a single org "... Agency for X and Y" must not split on "and"). Require a
@@ -359,6 +361,8 @@ def creator_name_is_junk(name) -> bool:
         return True
     if re.fullmatch(r"et\s*\.?\s*al\.?", n, re.I):   # "et al" alone is not an author
         return True
+    if re.match(r"^\s*WP\s*\d", n, re.I) or "work package" in n.lower():
+        return True                                  # project work-package label
     return not re.search(r"[A-Za-z]{2,}", n)
 
 
