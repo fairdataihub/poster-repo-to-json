@@ -342,6 +342,161 @@ def normalize_creators(record: dict) -> bool:
     return changed
 
 
+def _name_signals(name):
+    """Accent-stripped (full 2+ letter tokens, single-letter initials)."""
+    toks = _clean_name(name).replace(",", " ").split()
+    return (frozenset(t for t in toks if len(t) >= 2),
+            frozenset(t for t in toks if len(t) == 1))
+
+
+def same_author(a, b) -> bool:
+    """True if two creator names denote the same person under different forms
+    (initials vs full given, accents, family/given order). Conservative: two
+    names that each carry a distinct full given/family token are different."""
+    fa, ia = _name_signals(a)
+    fb, ib = _name_signals(b)
+    if not fa or not fb or not (fa & fb):
+        return False
+    only_a, only_b = fa - fb, fb - fa
+    if only_a and only_b:
+        return False
+    if not only_a and not only_b:
+        # identical full tokens: distinguish only if both give conflicting initials
+        return not (ia and ib and ia.isdisjoint(ib))
+    # exactly one side has extra full tokens; the other is the abbreviated form,
+    # so its initials must be consistent with those extra tokens' first letters
+    extra = only_a or only_b
+    abbr = ib if only_a else ia
+    if abbr and not (abbr <= {t[0] for t in extra}):
+        return False
+    return True
+
+
+def _fam_given(name):
+    """(family, given, has_comma) preserving original characters."""
+    s = str(name).strip()
+    if "," in s:
+        fam, giv = s.split(",", 1)
+        return fam.strip(), giv.strip(), True
+    return s, "", False
+
+
+def _accents(s):
+    return sum(1 for ch in str(s) if ord(ch) > 127)
+
+
+def _full_tokens(s):
+    return [t for t in _clean_name(s).replace(",", " ").split() if len(t) >= 2]
+
+
+def _merge_name(group_names):
+    """Build a single "Family, Given" name for a set of duplicate forms: the most
+    complete (accent-preferring) family from any comma-form, plus the fullest
+    given drawn from any form. Falls back to the fullest original if no
+    comma-form anchors the family."""
+    parsed = [_fam_given(nm) for nm in group_names]
+    fam_cands = [f for (f, _g, hc) in parsed if hc and f]
+    if not fam_cands:
+        return max(group_names, key=lambda nm: (len(_full_tokens(nm)), _accents(nm), len(nm)))
+    fam = max(fam_cands, key=lambda s: (len(_full_tokens(s)), _accents(s), len(s)))
+    fam_tok = set(_clean_name(fam).split())
+    givens = []
+    for nm, (f, g, hc) in zip(group_names, parsed):
+        if hc:
+            givens.append(g)
+        else:  # no comma: given = tokens that aren't the family
+            rem = [t for t in nm.split() if _clean_name(t).strip() not in fam_tok]
+            givens.append(" ".join(rem))
+    givens = [g for g in givens if g and g.strip()]
+    if not givens:
+        return fam
+    given = max(givens, key=lambda g: (len(_full_tokens(g)), _accents(g), len(g)))
+    return f"{fam}, {given}"
+
+
+def _merge_dicts(lists, key):
+    out, seen = [], set()
+    for lst in lists:
+        if not isinstance(lst, list):
+            continue
+        for item in lst:
+            k = str(item.get(key, "") if isinstance(item, dict) else item).strip().lower()
+            if not k or k in seen:
+                continue
+            seen.add(k)
+            out.append(item)
+    return out
+
+
+def dedup_creators(record: dict) -> bool:
+    """Collapse duplicate authors that the original pipeline listed twice (deposit
+    form + extraction form). Same-person forms are merged into one "Family, Given"
+    entry (keeping the earliest position) with their ORCID/affiliations pooled.
+    Lumped multi-author names are left untouched."""
+    cres = record.get("creators")
+    if not isinstance(cres, list) or len(cres) < 2:
+        return False
+    items = [(k, c) for k, c in enumerate(cres) if isinstance(c, dict) and c.get("name")]
+    m = len(items)
+    if m < 2:
+        return False
+    names = [c.get("name") for _, c in items]
+    parent = list(range(m))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for i in range(m):
+        if _name_is_lumped(names[i]):
+            continue
+        for j in range(i + 1, m):
+            if _name_is_lumped(names[j]):
+                continue
+            if same_author(names[i], names[j]):
+                parent[find(i)] = find(j)
+
+    root_members = {}
+    for i in range(m):
+        root_members.setdefault(find(i), []).append(i)
+    if all(len(v) == 1 for v in root_members.values()):
+        return False
+
+    drop_local = set()
+    for members in root_members.values():
+        if len(members) == 1:
+            continue
+        members = sorted(members)
+        keeper = members[0]
+        base = max(members, key=lambda x: (len(items[x][1].get("nameIdentifiers") or []),
+                                           1 if items[x][1].get("affiliation") else 0,
+                                           len(names[x])))
+        merged = dict(items[base][1])
+        merged["name"] = _merge_name([names[x] for x in members])
+        nid = _merge_dicts([items[x][1].get("nameIdentifiers") for x in members], "nameIdentifier")
+        aff = _merge_dicts([items[x][1].get("affiliation") for x in members], "name")
+        if nid:
+            merged["nameIdentifiers"] = nid
+        else:
+            merged.pop("nameIdentifiers", None)
+        if aff:
+            merged["affiliation"] = aff
+        else:
+            merged.pop("affiliation", None)
+        items[keeper] = (items[keeper][0], merged)
+        drop_local.update(members[1:])
+
+    drop_cres = {items[x][0] for x in drop_local}
+    replace = {items[x][0]: items[x][1] for x in range(m) if x not in drop_local}
+    new_cres = [replace.get(k, c) for k, c in enumerate(cres) if k not in drop_cres]
+    if new_cres != cres:
+        record["creators"] = new_cres
+        return True
+    return False
+
+
 _FORMAT_MAP = {
     "text/html": "HTML", "html": "HTML", "pdf": "PDF", "application/pdf": "PDF",
     "png": "PNG", "jpg": "JPEG", "jpeg": "JPEG", "tif": "TIFF", "tiff": "TIFF",

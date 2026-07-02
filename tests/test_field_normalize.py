@@ -7,7 +7,42 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from poster_to_json.field_normalize import (
     normalize_conference, normalize_publisher, normalize_subjects,
     normalize_creators, normalize_formats, resolve_lumped_creators,
+    same_author, dedup_creators,
 )
+
+
+def test_same_author_matching():
+    assert same_author("Yadav Pinku", "Yadav, P.")
+    assert same_author("Zambaldi, Claudio", "Zambaldi, C.")
+    assert same_author("Bilodeau, Zoë", "Bilodeau, Zoe")
+    assert same_author("Tunnell, Christopher D.", "Tunnell, Christopher")
+    assert same_author("Lourenço, A. A.", "Lourenco, Abilio Afonso")
+    # different people must NOT match
+    assert not same_author("Smith, John", "Smith, Jane")
+    assert not same_author("Yadav, P.", "Yadav Kumar")      # initial P != Kumar
+    assert not same_author("Yadav, P.", "Yadav, K.")        # different initials
+    assert not same_author("John Smith", "John Doe")        # shared given only
+    print("OK same_author: matches forms, rejects distinct authors")
+
+
+def test_dedup_creators_family_given():
+    rec = {"creators": [
+        {"name": "Yadav Pinku"},
+        {"name": "Lacoste Eric", "affiliation": [{"name": "Bordeaux"}]},
+        {"name": "Yadav, P.", "nameIdentifiers": [
+            {"nameIdentifier": "0000-0001", "nameIdentifierScheme": "ORCID"}]},
+        {"name": "Lacoste, E."},
+        {"name": "Smith, Jane"},                       # distinct, untouched
+        {"name": "Doe, John and Roe, Jane"},           # lumped, untouched
+    ]}
+    assert dedup_creators(rec)
+    names = [c["name"] for c in rec["creators"]]
+    assert names == ["Yadav, Pinku", "Lacoste, Eric", "Smith, Jane",
+                     "Doe, John and Roe, Jane"], names
+    # merged Yadav kept the ORCID from the deposit form + is Family, Given
+    assert rec["creators"][0]["nameIdentifiers"][0]["nameIdentifier"] == "0000-0001"
+    assert rec["creators"][1]["affiliation"] == [{"name": "Bordeaux"}]
+    print("OK dedup: same-author forms collapsed to Family, Given; ids pooled")
 
 
 def test_lumped_creators_prefer_clean_extraction():
