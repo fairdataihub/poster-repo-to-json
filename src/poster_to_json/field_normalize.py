@@ -405,6 +405,12 @@ def normalize_creators(record: dict) -> bool:
         if n != nm:
             cc["name"] = n
             changed = True
+        # strip role markers / trailing artifacts ("... on behalf of X", "Name*")
+        nm2 = re.sub(r"\s+on behalf of\b.*$", "", cc.get("name", ""), flags=re.I)
+        nm2 = re.sub(r"[\*†‡\s]+$", "", nm2).strip()
+        if nm2 != cc.get("name", "") and re.search(r"[A-Za-z]{2,}", nm2):
+            cc["name"] = nm2
+            changed = True
         # affiliation text bled into the name field ("Name - University of X")
         clean_nm, bled_aff = split_name_affiliation(cc.get("name", ""))
         if bled_aff:
