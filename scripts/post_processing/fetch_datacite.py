@@ -60,10 +60,12 @@ def fetch(doi, retries=5):
     return {"_error": "retries_exhausted"}
 
 
-def run(merged_dir, cache_dir, limit, delay):
+def run(merged_dir, cache_dir, limit, delay, workers):
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     cache = Path(cache_dir)
     cache.mkdir(parents=True, exist_ok=True)
     stats = {"records": 0, "fetched": 0, "cached": 0, "notfound": 0, "errors": 0, "no_doi": 0}
+    todo = []
     for f in sorted(Path(merged_dir).glob("*_complete.json")):
         if limit and stats["records"] >= limit:
             break
@@ -81,20 +83,29 @@ def run(merged_dir, cache_dir, limit, delay):
         if out.exists():
             stats["cached"] += 1
             continue
+        todo.append((doi, out))
+
+    def _do(job):
+        doi, out = job
+        time.sleep(delay)
         res = fetch(doi)
-        if res.get("_notfound"):
-            stats["notfound"] += 1
-        elif res.get("_error") is not None:
-            stats["errors"] += 1
-        else:
-            stats["fetched"] += 1
         try:
             out.write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
         except Exception:
-            stats["errors"] += 1
-        if stats["fetched"] and stats["fetched"] % 500 == 0:
-            logger.info(f"  fetched {stats['fetched']} (records seen {stats['records']})")
-        time.sleep(delay)
+            return "errors"
+        if res.get("_notfound"):
+            return "notfound"
+        if res.get("_error") is not None:
+            return "errors"
+        return "fetched"
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        done = 0
+        for fut in as_completed(ex.submit(_do, j) for j in todo):
+            stats[fut.result()] += 1
+            done += 1
+            if done % 1000 == 0:
+                logger.info(f"  progress {done}/{len(todo)} (fetched {stats['fetched']})")
     return stats
 
 
@@ -106,10 +117,12 @@ def main():
     ap.add_argument("--cache-dir", required=True)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--delay", type=float, default=0.2)
+    ap.add_argument("--workers", type=int, default=1)
     args = ap.parse_args()
 
-    logger.info(f"fetch DataCite  merged={args.merged_dir}  cache={args.cache_dir}  delay={args.delay}")
-    stats = run(args.merged_dir, args.cache_dir, args.limit, args.delay)
+    logger.info(f"fetch DataCite  merged={args.merged_dir}  cache={args.cache_dir}  "
+                f"delay={args.delay}  workers={args.workers}")
+    stats = run(args.merged_dir, args.cache_dir, args.limit, args.delay, args.workers)
     for k in ("records", "fetched", "cached", "notfound", "errors", "no_doi"):
         logger.info(f"  {k:10s} {stats[k]}")
 
