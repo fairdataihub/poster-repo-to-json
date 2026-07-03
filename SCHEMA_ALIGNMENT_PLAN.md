@@ -155,10 +155,19 @@ a Crossref Funder ID for ~23% — so funding is NOT all LLM-guessed; Phase 3 mai
 adds ROR + awardUri + drops LLM-only funders. **Zenodo relatedIdentifiers** folded
 into Phase 3 (DataCite returns them clean).
 
-**Phase 3 — DataCite re-fetch (`api.datacite.org/dois/{doi}`) + converter/merger + backfill:**
-C2, C3, C4, C7 (creators given/family/type/ROR), B15–B18 (funding: deposit-authoritative,
-drop LLM-only), C10 (summary description), and Zenodo relatedIdentifiers. Batch the
-~17k Zenodo DOI pulls once. Figshare needs no re-fetch (stored metadata already rich).
+**Phase 3 — DataCite re-fetch.** ✅ DONE (v0.21.0, delivered 2026-07-03). Fetched
+`api.datacite.org/dois/{doi}` for all Zenodo (17,055 pre-2025 + 5,324 in 2025;
+`fetch_datacite.py`, cached, concurrent, resumable) and enriched via
+`enrich_from_datacite.py`: **nameType 100%** (DataCite-authoritative, wins over the
+org-heuristic; "otherwise Personal"), **structured givenName/familyName 93–98%**,
+**funding deposit-authoritative** (ROR funder ids; LLM-only funders dropped), plus
+subjects + depositor-declared relatedIdentifiers (version-graph filtered). C7
+(affiliation ROR) **not achievable** — DataCite affiliation is name-only (depositors
+rarely register ROR), so the text-matcher remains the ROR source. Figshare needed no
+re-fetch. Delivered: pre-2025 19,660 files, 2025 open subset 3,658 files, 0 failures,
+0 integrity issues.
+
+**ALL PHASES COMPLETE.** The 24k+7k corpus is aligned to the target schema.
 
 **Phase 4 — optional hardening:** NFKC-uniform subjects, fullest-form upgrade for
 surname-matched creators, title QC comparison, Figshare category FoR codes.
