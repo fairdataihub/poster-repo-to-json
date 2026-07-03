@@ -20,6 +20,8 @@ from typing import Dict, List, Optional
 
 from tqdm import tqdm
 
+from .date_normalize import normalize_date_value
+
 logger = logging.getLogger(__name__)
 
 # ISO 639-2/B (3-letter) to ISO 639-1 (2-letter) mapping for common languages
@@ -149,6 +151,78 @@ def _clean_title(title: str) -> str:
     # Remove common file extensions from titles (Figshare often uses filenames)
     title = re.sub(r'\.(pdf|pptx?|png|jpe?g|tiff?)$', '', title, flags=re.IGNORECASE)
     return title.strip()
+
+
+# DataCite relationType controlled vocabulary (keyed by normalized lowercase,
+# underscores/spaces stripped). Full enum so valid relations aren't collapsed.
+_RELATION_MAP = {
+    "iscitedby": "IsCitedBy", "cites": "Cites",
+    "issupplementto": "IsSupplementTo", "issupplementedby": "IsSupplementedBy",
+    "iscontinuedby": "IsContinuedBy", "continues": "Continues",
+    "isdescribedby": "IsDescribedBy", "describes": "Describes",
+    "hasmetadata": "HasMetadata", "ismetadatafor": "IsMetadataFor",
+    "hasversion": "HasVersion", "isversionof": "IsVersionOf",
+    "hasversionof": "HasVersion",
+    "isnewversionof": "IsNewVersionOf", "ispreviousversionof": "IsPreviousVersionOf",
+    "ispartof": "IsPartOf", "haspart": "HasPart", "ispublishedin": "IsPublishedIn",
+    "isreferencedby": "IsReferencedBy", "references": "References",
+    "isdocumentedby": "IsDocumentedBy", "documents": "Documents",
+    "iscompiledby": "IsCompiledBy", "compiles": "Compiles",
+    "isvariantformof": "IsVariantFormOf", "isoriginalformof": "IsOriginalFormOf",
+    "isidenticalto": "IsIdenticalTo", "isreviewedby": "IsReviewedBy", "reviews": "Reviews",
+    "isderivedfrom": "IsDerivedFrom", "issourceof": "IsSourceOf",
+    "isrequiredby": "IsRequiredBy", "requires": "Requires",
+    "obsoletes": "Obsoletes", "isobsoletedby": "IsObsoletedBy",
+}
+
+_ID_TYPE_MAP = {
+    "arxiv": "arXiv", "doi": "DOI", "url": "URL", "urn": "URN", "ark": "ARK",
+    "isbn": "ISBN", "issn": "ISSN", "eissn": "EISSN", "pmid": "PMID", "pmcid": "PMCID",
+    "handle": "Handle", "bibcode": "bibcode", "igsn": "IGSN", "w3id": "w3id",
+    "ean13": "EAN13", "istc": "ISTC", "lissn": "LISSN", "lsid": "LSID",
+    "purl": "PURL", "upc": "UPC",
+}
+
+_RESOURCE_TYPE_MAP = {
+    "publication": "Text", "publication-article": "JournalArticle",
+    "publication-preprint": "Preprint", "publication-conferencepaper": "ConferencePaper",
+    "publication-book": "Book", "publication-section": "BookChapter",
+    "publication-thesis": "Dissertation", "publication-report": "Report",
+    "publication-workingpaper": "Preprint", "publication-deliverable": "Report",
+    "publication-datamanagementplan": "OutputManagementPlan",
+    "dataset": "Dataset", "software": "Software", "poster": "Poster",
+    "presentation": "Text", "image": "Image", "image-figure": "Image",
+    "image-photo": "Image", "image-diagram": "Image", "image-plot": "Image",
+    "video": "Audiovisual", "audio": "Sound", "lesson": "Text",
+    "physicalobject": "PhysicalObject", "model": "Model", "workflow": "Workflow",
+    "other": "Other",
+}
+
+
+def _relation_type(raw) -> str:
+    key = str(raw or "").lower().replace("_", "").replace(" ", "")
+    return _RELATION_MAP.get(key, "References")
+
+
+def _id_type(scheme, identifier="") -> str:
+    t = _ID_TYPE_MAP.get(str(scheme or "").lower())
+    if t:
+        return t
+    s = str(identifier)
+    if re.match(r"^10\.\d{4,9}/", s):
+        return "DOI"
+    if s.startswith("http"):
+        return "URL"
+    return "Other"
+
+
+def _resource_type_general(rt) -> Optional[str]:
+    if not rt:
+        return None
+    key = str(rt).lower().strip()
+    if key in _RESOURCE_TYPE_MAP:
+        return _RESOURCE_TYPE_MAP[key]
+    return _RESOURCE_TYPE_MAP.get(key.split("-")[0], "Text")
 
 
 def load_bundled_schema() -> Dict:
@@ -334,6 +408,15 @@ class SchemaConverter:
                     parts = dates_str.split(" - ")
                     conference["conferenceStartDate"] = parts[0].strip()
                     conference["conferenceEndDate"] = parts[1].strip()
+                else:
+                    # Free-text range ("9-10 October 2023") -> ISO start/end
+                    parsed = normalize_date_value(dates_str)
+                    if parsed and "/" in parsed:
+                        s, e = parsed.split("/", 1)
+                        conference["conferenceStartDate"] = s
+                        conference["conferenceEndDate"] = e
+                    elif parsed:
+                        conference["conferenceStartDate"] = parsed
                 # Extract year from any date format ("9-10 October, 2023", etc.)
                 year = _extract_year_from_text(dates_str)
                 if year:
@@ -364,50 +447,25 @@ class SchemaConverter:
             if funders:
                 result["fundingReferences"] = funders
 
-        # Related identifiers
+        # Related identifiers (depositor-declared relations; NOT the version graph
+        # in metadata.relations). Full DataCite relationType enum; resourceTypeGeneral
+        # from the related item's resource_type.
         related = metadata.get("related_identifiers", [])
         if related:
-            RELATION_MAP = {
-                "issupplementto": "IsSupplementTo",
-                "is_supplement_to": "IsSupplementTo",
-                "issupplementedby": "IsSupplementedBy",
-                "iscitedby": "IsCitedBy",
-                "cites": "Cites",
-                "isderivedfrom": "IsDerivedFrom",
-                "issourceof": "IsSourceOf",
-                "isversionof": "IsVersionOf",
-                "hasversionof": "HasVersion",
-                "ispartof": "IsPartOf",
-                "haspart": "HasPart",
-                "references": "References",
-                "isreferencedby": "IsReferencedBy",
-                "isdocumentedby": "IsDocumentedBy",
-                "documents": "Documents",
-            }
-
-            ID_TYPE_MAP = {
-                "arxiv": "arXiv",
-                "doi": "DOI",
-                "url": "URL",
-                "urn": "URN",
-                "isbn": "ISBN",
-                "issn": "ISSN",
-                "pmid": "PMID",
-                "handle": "Handle",
-            }
-
             valid_relations = []
             for r in related:
-                if r.get("identifier"):
-                    rel_type = r.get("relation", "").lower().replace("_", "").replace(" ", "")
-                    schema_rel = RELATION_MAP.get(rel_type, "References")
-                    scheme = r.get("scheme", "Other").lower()
-                    schema_id_type = ID_TYPE_MAP.get(scheme, "Other")
-                    valid_relations.append({
-                        "relatedIdentifier": r["identifier"],
-                        "relatedIdentifierType": schema_id_type,
-                        "relationType": schema_rel,
-                    })
+                ident = r.get("identifier")
+                if not ident:
+                    continue
+                entry = {
+                    "relatedIdentifier": ident,
+                    "relatedIdentifierType": _id_type(r.get("scheme"), ident),
+                    "relationType": _relation_type(r.get("relation")),
+                }
+                rtg = _resource_type_general(r.get("resource_type"))
+                if rtg:
+                    entry["resourceTypeGeneral"] = rtg
+                valid_relations.append(entry)
             if valid_relations:
                 result["relatedIdentifiers"] = valid_relations
 
@@ -562,10 +620,44 @@ class SchemaConverter:
                     funder_entry["awardTitle"] = f["title"]
                 if f.get("grant_code"):
                     funder_entry["awardNumber"] = f["grant_code"]
+                if f.get("url"):
+                    funder_entry["awardUri"] = f["url"]
                 if funder_entry:
                     funders.append(funder_entry)
             if funders:
                 result["fundingReferences"] = funders
+
+        # Related identifiers — Figshare references[] (URL strings) + related_materials[]
+        related = []
+        seen_rel = set()
+        for ref in record.get("references", []):
+            if isinstance(ref, str) and ref.strip():
+                ident = ref.strip()
+                if ident.lower() in seen_rel:
+                    continue
+                seen_rel.add(ident.lower())
+                related.append({
+                    "relatedIdentifier": ident,
+                    "relatedIdentifierType": _id_type(None, ident),
+                    "relationType": "References",
+                })
+        for rm in record.get("related_materials", []):
+            if not isinstance(rm, dict):
+                continue
+            ident = rm.get("identifier")
+            if not ident or not str(ident).strip():
+                continue
+            ident = str(ident).strip()
+            if ident.lower() in seen_rel:
+                continue
+            seen_rel.add(ident.lower())
+            related.append({
+                "relatedIdentifier": ident,
+                "relatedIdentifierType": _id_type(rm.get("identifier_type"), ident),
+                "relationType": _relation_type(rm.get("relation")),
+            })
+        if related:
+            result["relatedIdentifiers"] = related
 
         # File formats
         files = record.get("files", [])
