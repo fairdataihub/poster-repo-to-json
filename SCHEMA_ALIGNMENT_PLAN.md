@@ -144,12 +144,21 @@ carries first/last/orcid_id/funding_list/categories/license/references.
 10,661 deposit versions added). **Deferred within Phase 1:** B9 (conference free-text ranges),
 B12–B14 + B19 (relatedIdentifiers / Figshare references) — pending the Phase 2 key-existence verify.
 
-**Phase 2 — verify before re-fetch:** confirm which legacy keys actually exist per record
-(`metadata.related_identifiers` vs only `relations`, `metadata.version`, funding coverage) —
-sizes the re-fetch and catches any further silent no-ops.
+**Phase 2 — verify + deferred code items.** ✅ DONE (v0.20.0, delivered 2026-07-03).
+Verify findings (of 4k Zenodo sampled): `related_identifiers` present ~10%, `grants`
+(legacy funding, populated!) ~23%, `relations` = version graph only (not used).
+Shipped: B9 (conference free-text ranges — 3,683 records), B12–B14 (full DataCite
+relationType enum + resourceTypeGeneral; Figshare `references`/`related_materials` —
+1,886 records), B19 (Figshare `funding_list[].url` → awardUri). `backfill_phase2.py`.
+**Note:** legacy Zenodo `grants` already yields funderName/awardNumber/awardTitle +
+a Crossref Funder ID for ~23% — so funding is NOT all LLM-guessed; Phase 3 mainly
+adds ROR + awardUri + drops LLM-only funders. **Zenodo relatedIdentifiers** folded
+into Phase 3 (DataCite returns them clean).
 
-**Phase 3 — DataCite re-fetch + converter/merger changes + backfill:** C2, C3, C4, C7,
-B15–B19 (funding), C10 (summary). Batch the ~17k Zenodo DOI pulls once.
+**Phase 3 — DataCite re-fetch (`api.datacite.org/dois/{doi}`) + converter/merger + backfill:**
+C2, C3, C4, C7 (creators given/family/type/ROR), B15–B18 (funding: deposit-authoritative,
+drop LLM-only), C10 (summary description), and Zenodo relatedIdentifiers. Batch the
+~17k Zenodo DOI pulls once. Figshare needs no re-fetch (stored metadata already rich).
 
 **Phase 4 — optional hardening:** NFKC-uniform subjects, fullest-form upgrade for
 surname-matched creators, title QC comparison, Figshare category FoR codes.
