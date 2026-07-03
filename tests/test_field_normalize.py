@@ -17,7 +17,7 @@ def test_align_schema():
         "types": {"resourceType": "Scientific Poster", "resourceTypeGeneral": "Image"},
         "creators": [{
             "name": "Doe, John",
-            "nameIdentifiers": [{"nameIdentifier": "0000-0001", "nameIdentifierScheme": "ORCID"}],
+            "nameIdentifiers": [{"nameIdentifier": "0000-0001-2345-6789", "nameIdentifierScheme": "ORCID"}],
             "affiliation": [{"name": "Acme", "affiliationIdentifier": "https://ror.org/05acme",
                              "affiliationIdentifierScheme": "ROR", "schemeUri": "https://ror.org/"}],
         }],
@@ -32,6 +32,7 @@ def test_align_schema():
     assert rec["types"] == {"resourceType": "Poster", "resourceTypeGeneral": "Poster"}
     nid = rec["creators"][0]["nameIdentifiers"][0]
     assert nid["schemeURI"] == "https://orcid.org"
+    assert nid["nameIdentifier"] == "https://orcid.org/0000-0001-2345-6789"  # URL-normalized
     aff = rec["creators"][0]["affiliation"][0]
     assert "schemeUri" not in aff and aff["schemeURI"] == "https://ror.org"
     assert rec["rightsList"] == [{"rights": "CC-BY-4.0"}]

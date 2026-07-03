@@ -324,6 +324,10 @@ def normalize_subjects(record: dict) -> bool:
         if pieces != [val.strip()]:
             changed = True
         for v in pieces:
+            nv = unicodedata.normalize("NFKC", v).strip()
+            if nv != v:
+                changed = True
+            v = nv
             if not v or _is_placeholder(v) or _URL_RE.search(v) or _EMAIL_RE.search(v):
                 changed = True
                 continue
@@ -697,8 +701,15 @@ def align_schema(record: dict) -> bool:
             c["nameType"] = "Personal"
             changed = True
         for nid in c.get("nameIdentifiers") or []:
-            if (isinstance(nid, dict) and nid.get("nameIdentifierScheme") == "ORCID"
-                    and nid.get("schemeURI") != _ORCID_SCHEME_URI):
+            if not isinstance(nid, dict) or nid.get("nameIdentifierScheme") != "ORCID":
+                continue
+            val = nid.get("nameIdentifier")
+            if val and not str(val).startswith("http"):
+                m = re.search(r"\d{4}-\d{4}-\d{4}-\d{3}[\dxX]", str(val))
+                if m:
+                    nid["nameIdentifier"] = f"https://orcid.org/{m.group(0)}"
+                    changed = True
+            if nid.get("schemeURI") != _ORCID_SCHEME_URI:
                 nid["schemeURI"] = _ORCID_SCHEME_URI
                 changed = True
         for aff in c.get("affiliation") or []:
