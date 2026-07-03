@@ -688,10 +688,14 @@ def align_schema(record: dict) -> bool:
         record["types"] = {"resourceType": "Poster", "resourceTypeGeneral": "Poster"}
         changed = True
 
-    # creators: ORCID schemeURI present; affiliation schemeURI casing/value
+    # creators: default nameType (deposit type / DataCite / tag_org_creators win
+    # first; "otherwise Personal" per the target schema); ORCID + affiliation schemeURI
     for c in record.get("creators") or []:
         if not isinstance(c, dict):
             continue
+        if c.get("name") and not c.get("nameType"):
+            c["nameType"] = "Personal"
+            changed = True
         for nid in c.get("nameIdentifiers") or []:
             if (isinstance(nid, dict) and nid.get("nameIdentifierScheme") == "ORCID"
                     and nid.get("schemeURI") != _ORCID_SCHEME_URI):
