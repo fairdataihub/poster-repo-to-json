@@ -8,7 +8,37 @@ from poster_to_json.field_normalize import (
     normalize_conference, normalize_publisher, normalize_subjects,
     normalize_creators, normalize_formats, resolve_lumped_creators,
     same_author, dedup_creators, split_lumped_name, normalize_lumped_creators,
+    align_schema,
 )
+
+
+def test_align_schema():
+    rec = {
+        "types": {"resourceType": "Scientific Poster", "resourceTypeGeneral": "Image"},
+        "creators": [{
+            "name": "Doe, John",
+            "nameIdentifiers": [{"nameIdentifier": "0000-0001", "nameIdentifierScheme": "ORCID"}],
+            "affiliation": [{"name": "Acme", "affiliationIdentifier": "https://ror.org/05acme",
+                             "affiliationIdentifierScheme": "ROR", "schemeUri": "https://ror.org/"}],
+        }],
+        "rightsList": [{"rights": "CC-BY-4.0", "rightsIdentifier": "CC-BY-4.0",
+                        "rightsIdentifierScheme": "SPDX", "schemeUri": "https://spdx.org/licenses/"}],
+        "dates": [{"date": "2024", "dateType": "Issued"},
+                  {"date": "2023", "dateType": "Submitted"},
+                  {"date": "2024/2024", "dateType": "Presented"}],
+        "publisher": {"name": "Zenodo", "publisherIdentifier": "https://ror.org/x"},
+    }
+    assert align_schema(rec)
+    assert rec["types"] == {"resourceType": "Poster", "resourceTypeGeneral": "Poster"}
+    nid = rec["creators"][0]["nameIdentifiers"][0]
+    assert nid["schemeURI"] == "https://orcid.org"
+    aff = rec["creators"][0]["affiliation"][0]
+    assert "schemeUri" not in aff and aff["schemeURI"] == "https://ror.org"
+    assert rec["rightsList"] == [{"rights": "CC-BY-4.0"}]
+    assert [d["dateType"] for d in rec["dates"]] == ["Issued"]
+    assert rec["publisher"] == {"name": "Zenodo"}
+    assert align_schema(rec) is False   # idempotent
+    print("OK align_schema: types/schemeURI fixed, rights/dates/publisher stripped")
 
 
 def test_split_lumped_name():

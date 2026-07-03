@@ -144,7 +144,7 @@ def _enrich_affiliation_item(item, client: RorClient):
                 "name": m["name"],
                 "affiliationIdentifier": m["id"],
                 "affiliationIdentifierScheme": "ROR",
-                "schemeUri": "https://ror.org/",
+                "schemeURI": "https://ror.org",
             }
         return item
     if isinstance(item, dict):
@@ -159,7 +159,8 @@ def _enrich_affiliation_item(item, client: RorClient):
             out["name"] = m["name"]
             out["affiliationIdentifier"] = m["id"]
             out["affiliationIdentifierScheme"] = "ROR"
-            out.setdefault("schemeUri", "https://ror.org/")
+            out.pop("schemeUri", None)
+            out["schemeURI"] = "https://ror.org"
             return out
         return item
     return item
@@ -179,19 +180,12 @@ def enrich_persons(persons: list, client: RorClient) -> list:
 
 
 def enrich_publisher(publisher, client: RorClient):
-    if not isinstance(publisher, dict):
-        return publisher
-    if publisher.get("publisherIdentifier"):
-        return publisher
-    name = publisher.get("name")
-    if not isinstance(name, str):
-        return publisher
-    m = client.lookup(name)
-    if m:
-        out = dict(publisher)
-        out["name"] = m["name"]
-        out["publisherIdentifier"] = m["id"]
-        return out
+    """No-op: publisher.publisherIdentifier must stay EMPTY pre-publish.
+
+    posters.science stamps the re3data DOI (10.17616/R3QP53) + scheme at publish
+    time; the pipeline must not inject the repository's ROR (schema-invalid without
+    a scheme, and it would be overwritten at publish). See SCHEMA_ALIGNMENT_PLAN.md.
+    """
     return publisher
 
 

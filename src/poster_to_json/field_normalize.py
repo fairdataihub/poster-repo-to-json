@@ -667,3 +667,81 @@ def normalize_formats(record: dict) -> bool:
             record.pop("formats", None)
         return True
     return changed
+
+
+_ORCID_SCHEME_URI = "https://orcid.org"
+_ROR_SCHEME_URI = "https://ror.org"
+
+
+def align_schema(record: dict) -> bool:
+    """Phase-1 schema alignment (see SCHEMA_ALIGNMENT_PLAN.md): fixed resource
+    type, ORCID/ROR schemeURI presence + casing, and stripping the fields the
+    target schema marks None (rightsList sub-fields, Submitted/Presented dates,
+    publisher identifier). Deterministic; used go-forward in merge() and as the
+    corpus backfill."""
+    changed = False
+
+    # types -> Poster / Poster
+    t = record.get("types")
+    if isinstance(t, dict) and (t.get("resourceType") != "Poster"
+                                or t.get("resourceTypeGeneral") != "Poster"):
+        record["types"] = {"resourceType": "Poster", "resourceTypeGeneral": "Poster"}
+        changed = True
+
+    # creators: ORCID schemeURI present; affiliation schemeURI casing/value
+    for c in record.get("creators") or []:
+        if not isinstance(c, dict):
+            continue
+        for nid in c.get("nameIdentifiers") or []:
+            if (isinstance(nid, dict) and nid.get("nameIdentifierScheme") == "ORCID"
+                    and nid.get("schemeURI") != _ORCID_SCHEME_URI):
+                nid["schemeURI"] = _ORCID_SCHEME_URI
+                changed = True
+        for aff in c.get("affiliation") or []:
+            if not isinstance(aff, dict):
+                continue
+            if "schemeUri" in aff:
+                aff.pop("schemeUri", None)
+                changed = True
+            if aff.get("affiliationIdentifier") and aff.get("schemeURI") != _ROR_SCHEME_URI:
+                aff["schemeURI"] = _ROR_SCHEME_URI
+                changed = True
+
+    # rightsList -> keep only `rights` (strip rightsUri/Identifier/Scheme/schemeUri)
+    rl = record.get("rightsList")
+    if isinstance(rl, list):
+        new = []
+        for e in rl:
+            if not isinstance(e, dict):
+                continue
+            r = e.get("rights") or e.get("rightsIdentifier")
+            if r:
+                new.append({"rights": r})
+        if new != rl:
+            if new:
+                record["rightsList"] = new
+            else:
+                record.pop("rightsList", None)
+            changed = True
+
+    # dates -> drop Submitted / Presented (target keeps only Issued)
+    dates = record.get("dates")
+    if isinstance(dates, list):
+        kept = [d for d in dates if not (isinstance(d, dict)
+                and d.get("dateType") in ("Submitted", "Presented"))]
+        if kept != dates:
+            if kept:
+                record["dates"] = kept
+            else:
+                record.pop("dates", None)
+            changed = True
+
+    # publisher identifier -> empty pre-publish
+    pub = record.get("publisher")
+    if isinstance(pub, dict):
+        for k in ("publisherIdentifier", "publisherIdentifierScheme", "schemeURI", "schemeUri"):
+            if k in pub:
+                pub.pop(k, None)
+                changed = True
+
+    return changed

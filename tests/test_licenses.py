@@ -54,8 +54,9 @@ def test_merger_deposit_rights_win():
     }
     metadata = {"rightsList": [{"rights": "CC-BY-4.0", "rightsIdentifier": "CC-BY-4.0"}]}
     out = merger.merge(extraction, metadata)
-    assert out["rightsList"] == [{"rights": "CC-BY-4.0", "rightsIdentifier": "CC-BY-4.0"}]
-    print("OK merger: deposit rights win over extraction")
+    # deposit wins; align_schema strips the sub-field, leaving only `rights`
+    assert out["rightsList"] == [{"rights": "CC-BY-4.0"}]
+    print("OK merger: deposit rights win over extraction (sub-fields stripped)")
 
 
 def test_converter_legacy_and_invenio_and_none():

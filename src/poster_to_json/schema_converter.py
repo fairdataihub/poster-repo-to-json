@@ -178,7 +178,7 @@ class SchemaConverter:
     def _ensure_required_fields(self, result: Dict) -> Dict:
         """Set universal defaults only. Missing data stays missing — no placeholders."""
         if "types" not in result:
-            result["types"] = {"resourceType": "Scientific Poster", "resourceTypeGeneral": "Image"}
+            result["types"] = {"resourceType": "Poster", "resourceTypeGeneral": "Poster"}
         if "formats" not in result or not result["formats"]:
             result["formats"] = ["PDF"]
         return result
@@ -228,6 +228,7 @@ class SchemaConverter:
                 creator_entry["nameIdentifiers"] = [{
                     "nameIdentifier": creator["orcid"],
                     "nameIdentifierScheme": "ORCID",
+                    "schemeURI": "https://orcid.org",
                 }]
             creators.append(creator_entry)
 
@@ -242,6 +243,11 @@ class SchemaConverter:
         # Publisher
         result["publisher"] = {"name": "Zenodo"}
 
+        # Version (deposit-curated)
+        version = metadata.get("version")
+        if version is not None and str(version).strip():
+            result["version"] = str(version).strip()
+
         # Publication year
         pub_date = metadata.get("publication_date")
         if pub_date:
@@ -252,16 +258,10 @@ class SchemaConverter:
                 pass
             result["dates"] = [{"date": pub_date, "dateType": "Issued"}]
 
-        created = record.get("created", "")
-        if created:
-            dates_list = result.get("dates", [])
-            dates_list.append({"date": _strip_timestamp(created), "dateType": "Submitted"})
-            result["dates"] = dates_list
-
         # Resource type
         result["types"] = {
-            "resourceType": "Scientific Poster",
-            "resourceTypeGeneral": "Image"
+            "resourceType": "Poster",
+            "resourceTypeGeneral": "Poster"
         }
 
         # Description/Abstract — clean HTML tags AND entities
@@ -299,21 +299,21 @@ class SchemaConverter:
         if isinstance(license_info, dict):
             lid = _normalize_license_id(license_info.get("id"))
             if lid:
-                rights_entries.append({"rights": lid, "rightsIdentifier": lid})
+                rights_entries.append({"rights": lid})
         elif isinstance(license_info, str):
             lid = _normalize_license_id(license_info)
             if lid:
-                rights_entries.append({"rights": lid, "rightsIdentifier": lid})
+                rights_entries.append({"rights": lid})
         for r in (metadata.get("rights") or []):
             if isinstance(r, dict):
                 lid = _normalize_license_id(r.get("id") or r.get("title"))
                 if lid:
-                    rights_entries.append({"rights": lid, "rightsIdentifier": lid})
+                    rights_entries.append({"rights": lid})
         if rights_entries:
             seen = set()
             deduped = []
             for e in rights_entries:
-                k = e["rightsIdentifier"].lower()
+                k = e["rights"].lower()
                 if k not in seen:
                     seen.add(k)
                     deduped.append(e)
@@ -345,13 +345,6 @@ class SchemaConverter:
 
             if conference:
                 result["conference"] = conference
-                conf_start = conference.get("conferenceStartDate")
-                if conf_start:
-                    conf_end = conference.get("conferenceEndDate")
-                    presented = f"{conf_start}/{conf_end}" if conf_end else conf_start
-                    dates_list = result.get("dates", [])
-                    dates_list.append({"date": presented, "dateType": "Presented"})
-                    result["dates"] = dates_list
 
         # Funding/Grants
         grants = metadata.get("grants", [])
@@ -477,6 +470,7 @@ class SchemaConverter:
                 creator_entry["nameIdentifiers"] = [{
                     "nameIdentifier": author["orcid_id"],
                     "nameIdentifierScheme": "ORCID",
+                    "schemeURI": "https://orcid.org",
                 }]
             creators.append(creator_entry)
 
@@ -491,6 +485,11 @@ class SchemaConverter:
         # Publisher
         result["publisher"] = {"name": "Figshare"}
 
+        # Version (Figshare article version int -> str)
+        version = record.get("version")
+        if version is not None and str(version).strip():
+            result["version"] = str(version).strip()
+
         # Publication year
         pub_date = record.get("published_date")
         if pub_date:
@@ -502,16 +501,10 @@ class SchemaConverter:
                 pass
             result["dates"] = [{"date": clean_date, "dateType": "Issued"}]
 
-        created = record.get("created_date", "")
-        if created:
-            dates_list = result.get("dates", [])
-            dates_list.append({"date": _strip_timestamp(created), "dateType": "Submitted"})
-            result["dates"] = dates_list
-
         # Resource type
         result["types"] = {
-            "resourceType": "Scientific Poster",
-            "resourceTypeGeneral": "Image"
+            "resourceType": "Poster",
+            "resourceTypeGeneral": "Poster"
         }
 
         # Description — clean HTML
@@ -553,15 +546,9 @@ class SchemaConverter:
         # License — normalize the Figshare license name to a canonical id.
         license_info = record.get("license")
         if isinstance(license_info, dict):
-            rights_entry = {}
             lid = _normalize_license_id(license_info.get("name"))
             if lid:
-                rights_entry["rights"] = lid
-                rights_entry["rightsIdentifier"] = lid
-            if license_info.get("url"):
-                rights_entry["rightsUri"] = license_info["url"]
-            if rights_entry:
-                result["rightsList"] = [rights_entry]
+                result["rightsList"] = [{"rights": lid}]
 
         # Funding
         funding = record.get("funding_list", [])

@@ -28,7 +28,7 @@ from .field_normalize import (
     normalize_conference, normalize_publisher, normalize_subjects,
     normalize_creators, normalize_formats, resolve_lumped_creators,
     creator_addable_to_union, creator_surnames, name_tokens, dedup_creators,
-    normalize_lumped_creators,
+    normalize_lumped_creators, align_schema,
 )
 
 logger = logging.getLogger(__name__)
@@ -163,7 +163,6 @@ class MetadataMerger:
             elif field == "conference":
                 result["conference"] = self._merge_conference(ext_val, meta_val)
 
-        self._ensure_presented_date(result)
         self._strip_metadata_placeholders(result)
         normalize_record_dates(result)
         normalize_conference(result)
@@ -173,6 +172,7 @@ class MetadataMerger:
         normalize_creators(result)
         dedup_creators(result)
         normalize_formats(result)
+        align_schema(result)
 
         return result
 
@@ -324,8 +324,8 @@ class MetadataMerger:
                     aff["affiliationIdentifier"] = m["affiliationIdentifier"]
                     if m.get("affiliationIdentifierScheme"):
                         aff["affiliationIdentifierScheme"] = m["affiliationIdentifierScheme"]
-                    if m.get("schemeUri"):
-                        aff["schemeUri"] = m["schemeUri"]
+                    if m.get("schemeURI") or m.get("schemeUri"):
+                        aff["schemeURI"] = m.get("schemeURI") or "https://ror.org"
             out.append(aff)
         return out
 
