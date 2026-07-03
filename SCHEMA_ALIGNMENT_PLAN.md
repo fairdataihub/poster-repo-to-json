@@ -138,7 +138,11 @@ carries first/last/orcid_id/funding_list/categories/license/references.
 ## Execution phases
 
 **Phase 1 — code-only value/casing/strip fixes (no network; deterministic 31k backfill):**
-A1, A2, A5, A9, C8, B3, B6/B7 (strip), B11 (strip), B9, B12–B14, B19(Figshare), (optional C5 URL-normalize).
+✅ DONE (v0.19.0, delivered 2026-07-02): A1, A2, A5, A9, C8, B3, B6/B7 (strip), B11 (strip)
+— `align_schema()` normalizer + `add_version.py`; validated clean corpus-wide (0 bad types,
+0 publisher-ids, 0 Submitted/Presented dates, 0 rights sub-fields, all 40k ROR affils fixed,
+10,661 deposit versions added). **Deferred within Phase 1:** B9 (conference free-text ranges),
+B12–B14 + B19 (relatedIdentifiers / Figshare references) — pending the Phase 2 key-existence verify.
 
 **Phase 2 — verify before re-fetch:** confirm which legacy keys actually exist per record
 (`metadata.related_identifiers` vs only `relations`, `metadata.version`, funding coverage) —
