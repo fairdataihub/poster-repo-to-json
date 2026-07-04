@@ -77,6 +77,15 @@ def _extract_year_from_text(text: str) -> Optional[int]:
     return None
 
 
+_ISO_DATE_RE = re.compile(r'^\d{4}(-\d{2}(-\d{2})?)?$')
+
+
+def _iso_date_or_none(s):
+    """Return s if it is a clean ISO date (YYYY / YYYY-MM / YYYY-MM-DD), else None."""
+    s = (str(s).strip() if s else "")
+    return s if _ISO_DATE_RE.match(s) else None
+
+
 def conference_from_meeting(meeting: dict) -> Optional[dict]:
     """Build a conference dict from a Zenodo deposit `meeting` (authoritative).
 
@@ -92,18 +101,23 @@ def conference_from_meeting(meeting: dict) -> Optional[dict]:
         conference["conferenceAcronym"] = meeting["acronym"]
     if meeting.get("dates"):
         dates_str = meeting["dates"]
+        # Structured "YYYY-MM-DD - YYYY-MM-DD" first, else free-text; both routed
+        # through normalize_date_value and kept ONLY if clean ISO (never leak
+        # unparsed free-text like "19 november 2024" into a date field).
         if " - " in dates_str:
-            parts = dates_str.split(" - ")
-            conference["conferenceStartDate"] = parts[0].strip()
-            conference["conferenceEndDate"] = parts[1].strip()
+            parsed = normalize_date_value(dates_str.replace(" - ", "/"))
         else:
             parsed = normalize_date_value(dates_str)
-            if parsed and "/" in parsed:
-                s, e = parsed.split("/", 1)
-                conference["conferenceStartDate"] = s
-                conference["conferenceEndDate"] = e
-            elif parsed:
-                conference["conferenceStartDate"] = parsed
+        s = e = None
+        if parsed and "/" in parsed:
+            s, e = parsed.split("/", 1)
+        elif parsed:
+            s = parsed
+        s, e = _iso_date_or_none(s), _iso_date_or_none(e)
+        if s:
+            conference["conferenceStartDate"] = s
+        if e:
+            conference["conferenceEndDate"] = e
         year = _extract_year_from_text(dates_str)
         if year:
             conference["conferenceYear"] = year

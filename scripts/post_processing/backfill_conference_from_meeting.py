@@ -57,10 +57,18 @@ def run(merged_dir, metadata_dir, dry_run, limit, show):
             continue
         meeting = (raw.get("metadata") or {}).get("meeting") or {}
         conf = conference_from_meeting(meeting)
-        # Only override when the deposit meeting carries authoritative date info.
-        if not conf or not (conf.get("conferenceStartDate") or conf.get("conferenceYear")):
+        # Only override when the deposit meeting yields a CLEAN ISO start date
+        # (conference_from_meeting drops non-ISO). Otherwise keep the LLM value
+        # (which may be a clean date) and let sanitize_conference_dates drop it if
+        # it is a hallucinated future date. This never regresses a clean LLM date.
+        if not conf or not conf.get("conferenceStartDate"):
             stats["no_meeting"] += 1
             continue
+        # preserve a good LLM conference name if the meeting lacks a title
+        if not conf.get("conferenceName"):
+            old_name = (d.get("conference") or {}).get("conferenceName")
+            if old_name:
+                conf["conferenceName"] = old_name
         if d.get("conference") == conf:
             continue
         if show and len(samples) < show:
