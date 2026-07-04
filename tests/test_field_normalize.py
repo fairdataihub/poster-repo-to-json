@@ -110,6 +110,18 @@ def test_sanitize_conference_dates():
     print("OK sanitize_conference_dates: drops future conf dates + derived Presented")
 
 
+def test_conference_string_coercion():
+    from poster_to_json.field_normalize import normalize_conference
+    # bare string -> {conferenceName}; now a valid object + reachable by sanitizer
+    r = {"conference": "AGU Fall Meeting"}
+    assert normalize_conference(r)
+    assert r["conference"] == {"conferenceName": "AGU Fall Meeting"}
+    # empty string -> dropped
+    r2 = {"conference": "   "}
+    assert normalize_conference(r2) and "conference" not in r2
+    print("OK normalize_conference: string conference coerced to object")
+
+
 def test_split_lumped_name():
     # explicit "and"
     assert split_lumped_name("Doe, John and Roe, Jane") == ["Doe, John", "Roe, Jane"]

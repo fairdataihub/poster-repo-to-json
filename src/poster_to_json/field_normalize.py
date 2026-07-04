@@ -204,10 +204,24 @@ def normalize_conference(record: dict, max_year: int = 2026) -> bool:
     """Drop placeholder conference sub-fields, ISO-normalize its dates, and drop
     the whole conference object if nothing meaningful remains."""
     conf = record.get("conference")
+    # Coerce a bare-string conference (LLM sometimes emits just the name, and the
+    # merge only wraps it when the deposit also has a meeting) into a schema-valid
+    # object so it is validated AND reachable by sanitize_conference_dates.
+    coerced = False
+    if isinstance(conf, str):
+        s = conf.strip()
+        if not s:
+            if "conference" in record:
+                record.pop("conference", None)
+                return True
+            return False
+        conf = {"conferenceName": s}
+        record["conference"] = conf
+        coerced = True
     if not isinstance(conf, dict):
         return False
 
-    changed = False
+    changed = coerced
     cleaned = {}
     for k, v in conf.items():
         if _is_placeholder(v):
