@@ -116,6 +116,25 @@ FoR codes dropped) · conference identifier/series (absent) · content/captions/
 
 ---
 
+## Output hygiene (v0.23.0, delivered 2026-07-04)
+
+Five output-cleanliness fixes found by QA-ing real records against the schema
+(all in `align_schema`): (1) `$schema` forced to canonical **v0.2** (the LLM
+extraction's older `$schema` was surviving the merge); (2) leaked internal fields
+(`_source`, `_extraction_time_s`) stripped; (3) null/empty `conference` omitted;
+(4) `affiliation` normalized to a list of `{name}` objects (bare strings wrapped,
+null dropped) — schema allows `oneOf[string,object]` so either is valid; (5)
+reference DOIs removed from `identifiers[]` when already in `relatedIdentifiers[]`.
+
+## Platform integration (posters.science) — how auto-indexed posters are handled
+
+Verified against the canonical repos so our batch output matches the interactive
+Poster-Sharing path:
+- **Canonical schema** = `fairdataihub/poster-json-schema`, `$id` **v0.2** (matches our fix). Reference `example/poster.json` has NO `_`-internals and uses affiliation strings — both consistent with our output.
+- **Auto-indexing pipeline** = `fairdataihub/posters-science-extraction-api` → `job_worker.py` polls a DB and runs **`poster2json.extract`** (the library we vendored as `vendor/poster2json_features`), then `validation.py` validates against `poster_schema.json` (v0.2) + fills missing optional fields with defaults — it does NOT reshape data. `validation.py` explicitly handles affiliation `oneOf[string,object]`.
+- **Two paths differ by design:** Poster Sharing is LLM + user-reviewed + live ORCID/ROR API + publishes to Zenodo (populates Submitted=share-time, Presented=conference dates). Auto-Indexing is deposit-derived and strips Submitted/Presented per the Auto-Indexing sheet — this divergence is intentional. (Consider: we now HAVE conference start/end, so a Presented date could be derived to match Poster Sharing if the schema owner wants parity.)
+- **Upstream drift to flag to Sanjay/Dorian:** upstream `poster2json/ror.py:295` still emits the schema-invalid lowercase `"schemeUri"` (we fixed it to `schemeURI` in our vendored copy) — so the Poster-Sharing path currently produces the same invalid affiliation. Fixing it upstream benefits both paths and keeps our vendored copy from drifting.
+
 ## DataCite re-fetch mapping (`api.datacite.org/dois/{doi}` → `data.attributes`)
 
 | poster.json | DataCite attributes path | Merge rule |
