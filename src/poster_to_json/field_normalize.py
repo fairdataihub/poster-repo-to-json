@@ -776,11 +776,12 @@ def align_schema(record: dict) -> bool:
                 record.pop("rightsList", None)
             changed = True
 
-    # dates -> drop Submitted / Presented (target keeps only Issued)
+    # dates -> drop Submitted (share-time; Poster-Sharing-only). Presented is
+    # derived from the conference by ensure_presented_date (kept for parity).
     dates = record.get("dates")
     if isinstance(dates, list):
         kept = [d for d in dates if not (isinstance(d, dict)
-                and d.get("dateType") in ("Submitted", "Presented"))]
+                and d.get("dateType") == "Submitted")]
         if kept != dates:
             if kept:
                 record["dates"] = kept
@@ -811,3 +812,28 @@ def align_schema(record: dict) -> bool:
                 changed = True
 
     return changed
+
+
+def ensure_presented_date(record: dict) -> bool:
+    """Derive a `Presented` date from the conference dates, for parity with the
+    Poster-Sharing path. Uses the conference start (single) or start/end range,
+    only when a conference with a real start date exists and no Presented date is
+    already present."""
+    conf = record.get("conference")
+    if not isinstance(conf, dict):
+        return False
+    start = conf.get("conferenceStartDate")
+    if not start or _is_placeholder(start):
+        return False
+    dates = record.get("dates")
+    if not isinstance(dates, list):
+        dates = []
+    if any(isinstance(d, dict) and d.get("dateType") == "Presented" for d in dates):
+        return False
+    end = conf.get("conferenceEndDate")
+    date_val = f"{start}/{end}" if (end and not _is_placeholder(end) and end != start) else str(start)
+    name = conf.get("conferenceName")
+    entry = {"date": date_val, "dateType": "Presented"}
+    entry["dateInformation"] = f"Presented at {name}" if name else "Conference presentation dates"
+    record["dates"] = list(dates) + [entry]
+    return True

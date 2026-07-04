@@ -53,10 +53,28 @@ def test_align_schema():
     assert "affiliation" not in rec["creators"][1]                  # null affiliation dropped
     assert [i["identifier"] for i in rec["identifiers"]] == ["10.5281/zenodo.1", "1"]  # ref DOI removed
     assert rec["rightsList"] == [{"rights": "CC-BY-4.0"}]
-    assert [d["dateType"] for d in rec["dates"]] == ["Issued"]
+    assert [d["dateType"] for d in rec["dates"]] == ["Issued", "Presented"]  # only Submitted stripped
     assert rec["publisher"] == {"name": "Zenodo"}
     assert align_schema(rec) is False   # idempotent
     print("OK align_schema: schema/internals/conference/affiliation/identifiers + prior fixes")
+
+
+def test_ensure_presented_date():
+    from poster_to_json.field_normalize import ensure_presented_date
+    rec = {"conference": {"conferenceName": "AGU 2023",
+                          "conferenceStartDate": "2023-12-11", "conferenceEndDate": "2023-12-15"},
+           "dates": [{"date": "2023-12-01", "dateType": "Issued"}]}
+    assert ensure_presented_date(rec)
+    pres = [d for d in rec["dates"] if d["dateType"] == "Presented"]
+    assert pres and pres[0]["date"] == "2023-12-11/2023-12-15"
+    assert pres[0]["dateInformation"] == "Presented at AGU 2023"
+    assert ensure_presented_date(rec) is False        # idempotent (already has one)
+    # single-day conference -> single date; no conference -> no-op
+    r2 = {"conference": {"conferenceStartDate": "2022-05-02", "conferenceEndDate": "2022-05-02"}}
+    ensure_presented_date(r2)
+    assert r2["dates"][0]["date"] == "2022-05-02"
+    assert ensure_presented_date({"conference": None}) is False
+    print("OK ensure_presented_date: derived from conference range for parity")
 
 
 def test_split_lumped_name():

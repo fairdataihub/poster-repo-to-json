@@ -28,7 +28,7 @@ from .field_normalize import (
     normalize_conference, normalize_publisher, normalize_subjects,
     normalize_creators, normalize_formats, resolve_lumped_creators,
     creator_addable_to_union, creator_surnames, name_tokens, dedup_creators,
-    normalize_lumped_creators, align_schema,
+    normalize_lumped_creators, align_schema, ensure_presented_date,
 )
 
 logger = logging.getLogger(__name__)
@@ -173,6 +173,7 @@ class MetadataMerger:
         dedup_creators(result)
         normalize_formats(result)
         align_schema(result)
+        ensure_presented_date(result)
 
         return result
 
