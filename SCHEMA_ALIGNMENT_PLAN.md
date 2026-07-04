@@ -169,5 +169,19 @@ re-fetch. Delivered: pre-2025 19,660 files, 2025 open subset 3,658 files, 0 fail
 
 **ALL PHASES COMPLETE.** The 24k+7k corpus is aligned to the target schema.
 
-**Phase 4 — optional hardening:** NFKC-uniform subjects, fullest-form upgrade for
-surname-matched creators, title QC comparison, Figshare category FoR codes.
+**Phase 4 — optional polish.** ✅ DONE (v0.22.0, delivered 2026-07-03):
+- **NFKC-uniform subjects** — `normalize_subjects` NFKC-normalizes values.
+- **ORCID URL-normalization** — bare `0000-...` → `https://orcid.org/0000-...` (schema
+  example form); all corpus ORCIDs now URL-form.
+- **Title QC** — `title_qc.py` audit report (3,628 pre-2025 records where LLM title vs
+  deposit title diverge, sim<0.4) at `C:\Users\jimno\Downloads\title_qc_pre2025.tsv`.
+  Report-only; LLM title stays authoritative.
+
+Evaluated + **NOT applied**:
+- **Fullest-form creator upgrade** (`backfill_fullest_names.py`) — only ~11 records had a
+  genuinely fuller single-author extraction form; most "fuller" forms are junk-appended
+  (role suffixes / affiliation bleed / emails), so it'd corrupt names for negligible gain.
+  given/family are already structured from DataCite. Tool kept in repo, not run.
+- **Figshare category FoR/ANZSRC codes** — would populate `subjects[].subjectScheme` /
+  `classificationCode`, which the TSV marks `None` → conflicts with decision 3
+  (strip-to-TSV). Skipped; revisit if the schema owner wants them.
