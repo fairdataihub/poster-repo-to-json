@@ -14,13 +14,24 @@ from poster_to_json.field_normalize import (
 
 def test_align_schema():
     rec = {
+        "$schema": "https://posters.science/schema/v0.1/poster_schema.json",
+        "_source": "pdfalto",
+        "_extraction_time_s": 66.0,
+        "conference": None,
         "types": {"resourceType": "Scientific Poster", "resourceTypeGeneral": "Image"},
-        "creators": [{
-            "name": "Doe, John",
-            "nameIdentifiers": [{"nameIdentifier": "0000-0001-2345-6789", "nameIdentifierScheme": "ORCID"}],
-            "affiliation": [{"name": "Acme", "affiliationIdentifier": "https://ror.org/05acme",
-                             "affiliationIdentifierScheme": "ROR", "schemeUri": "https://ror.org/"}],
-        }],
+        "creators": [
+            {"name": "Doe, John",
+             "nameIdentifiers": [{"nameIdentifier": "0000-0001-2345-6789", "nameIdentifierScheme": "ORCID"}],
+             "affiliation": [{"name": "Acme", "affiliationIdentifier": "https://ror.org/05acme",
+                              "affiliationIdentifierScheme": "ROR", "schemeUri": "https://ror.org/"},
+                             "BRIN, Indonesia", None]},
+            {"name": "Roe, Jane", "affiliation": None},
+        ],
+        "identifiers": [{"identifier": "10.5281/zenodo.1", "identifierType": "DOI"},
+                        {"identifier": "1", "identifierType": "Other"},
+                        {"identifier": "10.ref/x", "identifierType": "DOI"}],
+        "relatedIdentifiers": [{"relatedIdentifier": "10.ref/x", "relatedIdentifierType": "DOI",
+                                "relationType": "References"}],
         "rightsList": [{"rights": "CC-BY-4.0", "rightsIdentifier": "CC-BY-4.0",
                         "rightsIdentifierScheme": "SPDX", "schemeUri": "https://spdx.org/licenses/"}],
         "dates": [{"date": "2024", "dateType": "Issued"},
@@ -29,17 +40,23 @@ def test_align_schema():
         "publisher": {"name": "Zenodo", "publisherIdentifier": "https://ror.org/x"},
     }
     assert align_schema(rec)
+    assert rec["$schema"] == "https://posters.science/schema/v0.2/poster_schema.json"
+    assert "_source" not in rec and "_extraction_time_s" not in rec
+    assert "conference" not in rec
     assert rec["types"] == {"resourceType": "Poster", "resourceTypeGeneral": "Poster"}
     nid = rec["creators"][0]["nameIdentifiers"][0]
     assert nid["schemeURI"] == "https://orcid.org"
     assert nid["nameIdentifier"] == "https://orcid.org/0000-0001-2345-6789"  # URL-normalized
-    aff = rec["creators"][0]["affiliation"][0]
-    assert "schemeUri" not in aff and aff["schemeURI"] == "https://ror.org"
+    aff = rec["creators"][0]["affiliation"]
+    assert aff[0]["schemeURI"] == "https://ror.org" and "schemeUri" not in aff[0]
+    assert aff[1] == {"name": "BRIN, Indonesia"} and len(aff) == 2  # string wrapped, null dropped
+    assert "affiliation" not in rec["creators"][1]                  # null affiliation dropped
+    assert [i["identifier"] for i in rec["identifiers"]] == ["10.5281/zenodo.1", "1"]  # ref DOI removed
     assert rec["rightsList"] == [{"rights": "CC-BY-4.0"}]
     assert [d["dateType"] for d in rec["dates"]] == ["Issued"]
     assert rec["publisher"] == {"name": "Zenodo"}
     assert align_schema(rec) is False   # idempotent
-    print("OK align_schema: types/schemeURI fixed, rights/dates/publisher stripped")
+    print("OK align_schema: schema/internals/conference/affiliation/identifiers + prior fixes")
 
 
 def test_split_lumped_name():

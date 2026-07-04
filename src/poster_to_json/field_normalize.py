@@ -675,6 +675,7 @@ def normalize_formats(record: dict) -> bool:
 
 _ORCID_SCHEME_URI = "https://orcid.org"
 _ROR_SCHEME_URI = "https://ror.org"
+_SCHEMA_URL = "https://posters.science/schema/v0.2/poster_schema.json"
 
 
 def align_schema(record: dict) -> bool:
@@ -684,6 +685,21 @@ def align_schema(record: dict) -> bool:
     publisher identifier). Deterministic; used go-forward in merge() and as the
     corpus backfill."""
     changed = False
+
+    # $schema -> canonical (the LLM extraction's older $schema leaks via merge)
+    if record.get("$schema") != _SCHEMA_URL:
+        record["$schema"] = _SCHEMA_URL
+        changed = True
+
+    # strip internal/debug fields that leaked from the extraction (_source, etc.)
+    for k in [k for k in record if isinstance(k, str) and k.startswith("_")]:
+        record.pop(k, None)
+        changed = True
+
+    # drop null/empty conference (omit rather than emit null)
+    if "conference" in record and not record.get("conference"):
+        record.pop("conference", None)
+        changed = True
 
     # types -> Poster / Poster
     t = record.get("types")
@@ -711,6 +727,27 @@ def align_schema(record: dict) -> bool:
                     changed = True
             if nid.get("schemeURI") != _ORCID_SCHEME_URI:
                 nid["schemeURI"] = _ORCID_SCHEME_URI
+                changed = True
+        # affiliation shape: list of {name:...} objects; wrap bare strings, drop null
+        aff_val = c.get("affiliation")
+        if aff_val is None and "affiliation" in c:
+            c.pop("affiliation", None)
+            changed = True
+        elif isinstance(aff_val, list):
+            fixed = []
+            for a in aff_val:
+                if isinstance(a, dict) and a.get("name"):
+                    fixed.append(a)
+                elif isinstance(a, str) and a.strip():
+                    fixed.append({"name": a.strip()})
+                    changed = True
+                else:
+                    changed = True
+            if fixed != aff_val:
+                if fixed:
+                    c["affiliation"] = fixed
+                else:
+                    c.pop("affiliation", None)
                 changed = True
         for aff in c.get("affiliation") or []:
             if not isinstance(aff, dict):
@@ -757,6 +794,20 @@ def align_schema(record: dict) -> bool:
         for k in ("publisherIdentifier", "publisherIdentifierScheme", "schemeURI", "schemeUri"):
             if k in pub:
                 pub.pop(k, None)
+                changed = True
+
+    # identifiers[] should carry only the poster's OWN identifiers; drop any that
+    # also appear in relatedIdentifiers (extraction reference DOIs that leaked in).
+    ids = record.get("identifiers")
+    rel = record.get("relatedIdentifiers")
+    if isinstance(ids, list) and isinstance(rel, list):
+        relset = {str(r.get("relatedIdentifier", "")).strip() for r in rel
+                  if isinstance(r, dict) and r.get("relatedIdentifier")}
+        if relset:
+            new_ids = [i for i in ids if not (isinstance(i, dict)
+                       and str(i.get("identifier", "")).strip() in relset)]
+            if new_ids != ids:
+                record["identifiers"] = new_ids
                 changed = True
 
     return changed
