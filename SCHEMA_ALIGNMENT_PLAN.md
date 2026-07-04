@@ -135,6 +135,30 @@ Poster-Sharing path:
 - **Two paths differ by design:** Poster Sharing is LLM + user-reviewed + live ORCID/ROR API + publishes to Zenodo. Auto-Indexing is deposit-derived. Submitted (share-time) stays Poster-Sharing-only. **Presented parity added (v0.24.0):** `ensure_presented_date` derives a Presented date from the conference (start, or start/end range, `dateInformation` = "Presented at &lt;conference&gt;") for the ~2,646 pre-2025 + ~2,635 2025 records that carry conference dates — matching the Poster-Sharing path.
 - **Upstream drift to flag to Sanjay/Dorian:** upstream `poster2json/ror.py:295` still emits the schema-invalid lowercase `"schemeUri"` (we fixed it to `schemeURI` in our vendored copy) — so the Poster-Sharing path currently produces the same invalid affiliation. Fixing it upstream benefits both paths and keeps our vendored copy from drifting.
 
+## Date authority — deposit over LLM-hallucinated years (v0.25.0, delivered 2026-07-04)
+
+An audit found the "2025-hallucination era" left two problems (the deposit Issued
+date was always correct — `issued_mismatch=0` corpus-wide — but):
+- **publicationYear** disagreed with the Issued date in **1,119 data2025 records**
+  (LLM year survived the 2025 merge; e.g. `py=2024` while `Issued=deposit=2025`). Pre-2025 was already correct.
+- **conferenceYear/dates** were LLM-won and hallucinated: ~3,823 records with
+  `conferenceYear` > pubYear+1 (e.g. `2025` on a 2018 poster), ~521 with a future
+  `conferenceStartDate` that had fed a wrong Presented date.
+
+Fix (all deposit-authoritative):
+- `reconcile_publication_year` — publicationYear follows the deposit **Issued** date
+  (Presented fallback), validated via `normalize_publication_year` (rejects bogus 2029/9999).
+- `sanitize_conference_dates` — drops conference Start/End/Year and any derived
+  Presented date whose year is >1yr after publicationYear. Runs AFTER reconcile, so
+  legitimate same-year conferences (2025 poster at a 2025 conference) are kept.
+- `backfill_conference_from_meeting.py` — restores Zenodo conference blocks from the
+  authoritative deposit `meeting` (**6,866 pre-2025 + 209 2025**). `conference_from_meeting`
+  (extracted from the converter) routes all meeting dates through `normalize_date_value`
+  and keeps only clean ISO (`_iso_date_or_none`) — never leaks free-text like "19 november 2024".
+- Then `ensure_presented_date` re-derives Presented from the corrected conference.
+
+Order in merge()/normalize_fields: reconcile_publication_year → … → sanitize_conference_dates → ensure_presented_date.
+
 ## DataCite re-fetch mapping (`api.datacite.org/dois/{doi}` → `data.attributes`)
 
 | poster.json | DataCite attributes path | Merge rule |
