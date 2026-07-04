@@ -18,9 +18,17 @@ Usage:
 import argparse
 import json
 import logging
-import os
+import re
 import sys
 from pathlib import Path
+
+# A valid single-author upgrade target: no multi-author delimiters, at most one comma.
+_MULTI = re.compile(r"&|\band\b|;|/|\bet\s*al\b|\+", re.I)
+
+
+def _single_author(name):
+    n = str(name)
+    return not _MULTI.search(n) and n.count(",") <= 1
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -73,7 +81,8 @@ def run(merged_dir, ext_dir, dry_run, limit, show):
                 stats["errors"] += 1
                 continue
             ecres = [c.get("name", "") for c in (ext.get("creators") or [])
-                     if isinstance(c, dict) and c.get("name") and not _name_is_lumped(c.get("name"))]
+                     if isinstance(c, dict) and c.get("name")
+                     and not _name_is_lumped(c.get("name")) and _single_author(c.get("name"))]
             changed = False
             for mc in mcres:
                 if not isinstance(mc, dict) or not mc.get("name") or _name_is_lumped(mc["name"]):
