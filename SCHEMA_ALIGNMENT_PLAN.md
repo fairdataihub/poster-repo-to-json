@@ -159,6 +159,17 @@ Fix (all deposit-authoritative):
 
 Order in merge()/normalize_fields: reconcile_publication_year → … → sanitize_conference_dates → ensure_presented_date.
 
+**String-conference coercion (v0.26.0).** A corpus-wide re-audit after the date fix
+verified **0** remaining `py != Issued`, future `conferenceYear`, future
+`conferenceStartDate`, or future `Presented` dates across all four sections — but
+surfaced **~2,270 records (1,003 pre-2025 + 1,267 2025) with `conference` as a bare
+string** (the LLM emits just the name, and the merge only wraps it when the deposit
+also has a meeting). That is schema-invalid AND was invisible to
+`sanitize_conference_dates` (it guards `isinstance(dict)`). `normalize_conference`
+now coerces a non-empty string to `{conferenceName: …}` (empty → dropped), so it is
+validated and date-reachable. After the backfill, string-conference count is **0**
+and normalize_fields is idempotent (second pass = 0 changes).
+
 ## DataCite re-fetch mapping (`api.datacite.org/dois/{doi}` → `data.attributes`)
 
 | poster.json | DataCite attributes path | Merge rule |
