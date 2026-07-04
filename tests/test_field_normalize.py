@@ -77,6 +77,39 @@ def test_ensure_presented_date():
     print("OK ensure_presented_date: derived from conference range for parity")
 
 
+def test_reconcile_publication_year():
+    from poster_to_json.field_normalize import reconcile_publication_year
+    # LLM year survived; Issued is deposit-authoritative -> follow Issued
+    r = {"publicationYear": 2024, "dates": [{"date": "2025-03-01", "dateType": "Issued"}]}
+    assert reconcile_publication_year(r) and r["publicationYear"] == 2025
+    assert reconcile_publication_year(r) is False            # idempotent
+    # no Issued -> fall back to Presented
+    r2 = {"publicationYear": 2019, "dates": [{"date": "2021-06-06/2021-06-08", "dateType": "Presented"}]}
+    assert reconcile_publication_year(r2) and r2["publicationYear"] == 2021
+    # bogus future Issued (>max_year) -> leave publicationYear untouched
+    r3 = {"publicationYear": None, "dates": [{"date": "2029-01-01", "dateType": "Issued"}]}
+    assert reconcile_publication_year(r3) is False and r3["publicationYear"] is None
+
+
+def test_sanitize_conference_dates():
+    from poster_to_json.field_normalize import sanitize_conference_dates
+    r = {"publicationYear": 2018,
+         "conference": {"conferenceName": "Neutrino 2018", "conferenceYear": 2025,
+                        "conferenceStartDate": "2025-06-04", "conferenceLocation": "X"},
+         "dates": [{"date": "2018-07-02", "dateType": "Issued"},
+                   {"date": "2025-06-04", "dateType": "Presented"}]}
+    assert sanitize_conference_dates(r)
+    assert "conferenceYear" not in r["conference"]            # hallucinated year dropped
+    assert "conferenceStartDate" not in r["conference"]       # future start dropped
+    assert r["conference"]["conferenceName"] == "Neutrino 2018"   # name kept
+    assert [d["dateType"] for d in r["dates"]] == ["Issued"]  # wrong Presented dropped
+    # credible conference (same year) untouched
+    ok = {"publicationYear": 2023,
+          "conference": {"conferenceStartDate": "2023-06-28", "conferenceYear": 2023}}
+    assert sanitize_conference_dates(ok) is False
+    print("OK sanitize_conference_dates: drops future conf dates + derived Presented")
+
+
 def test_split_lumped_name():
     # explicit "and"
     assert split_lumped_name("Doe, John and Roe, Jane") == ["Doe, John", "Roe, Jane"]

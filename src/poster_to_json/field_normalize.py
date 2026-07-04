@@ -837,3 +837,58 @@ def ensure_presented_date(record: dict) -> bool:
     entry["dateInformation"] = f"Presented at {name}" if name else "Conference presentation dates"
     record["dates"] = list(dates) + [entry]
     return True
+
+
+def _year_int(s):
+    s = str(s or "")
+    return int(s[:4]) if s[:4].isdigit() else None
+
+
+def reconcile_publication_year(record: dict) -> bool:
+    """publicationYear must follow the deposit-authoritative Issued date (else the
+    Presented date). Corrects LLM years that survived the merge (the 2025-
+    hallucination era left publicationYear disagreeing with a correct Issued date)."""
+    dates = record.get("dates") or []
+
+    def first(dt):
+        return next((d.get("date") for d in dates if isinstance(d, dict)
+                     and d.get("dateType") == dt and d.get("date")), None)
+
+    src = first("Issued") or first("Presented")
+    if not src:
+        return False
+    y = normalize_publication_year(str(src)[:4])
+    if y is None:
+        return False
+    if record.get("publicationYear") != y:
+        record["publicationYear"] = y
+        return True
+    return False
+
+
+def sanitize_conference_dates(record: dict) -> bool:
+    """Drop hallucinated future conference dates and any Presented date derived
+    from them. A conference/presentation year more than one year after the
+    deposit publicationYear is not credible (LLM 2025-hallucination era). Run
+    AFTER reconcile_publication_year so the anchor year is deposit-authoritative."""
+    py = record.get("publicationYear")
+    if not isinstance(py, int):
+        return False
+    cap = py + 1
+    changed = False
+    conf = record.get("conference")
+    if isinstance(conf, dict):
+        for k in ("conferenceStartDate", "conferenceEndDate", "conferenceYear"):
+            y = _year_int(conf.get(k))
+            if y and y > cap:
+                conf.pop(k, None)
+                changed = True
+    dates = record.get("dates")
+    if isinstance(dates, list):
+        kept = [d for d in dates if not (isinstance(d, dict)
+                and d.get("dateType") == "Presented"
+                and (_year_int(d.get("date")) or 0) > cap)]
+        if len(kept) != len(dates):
+            record["dates"] = kept
+            changed = True
+    return changed

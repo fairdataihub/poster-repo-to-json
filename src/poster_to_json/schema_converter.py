@@ -77,6 +77,43 @@ def _extract_year_from_text(text: str) -> Optional[int]:
     return None
 
 
+def conference_from_meeting(meeting: dict) -> Optional[dict]:
+    """Build a conference dict from a Zenodo deposit `meeting` (authoritative).
+
+    Shared by convert_zenodo and the date backfill so the deposit meeting can
+    override an LLM-extracted conference (which was prone to hallucinating the
+    year). Returns None if the meeting yields nothing usable."""
+    if not meeting:
+        return None
+    conference = {}
+    if meeting.get("title"):
+        conference["conferenceName"] = meeting["title"]
+    if meeting.get("acronym"):
+        conference["conferenceAcronym"] = meeting["acronym"]
+    if meeting.get("dates"):
+        dates_str = meeting["dates"]
+        if " - " in dates_str:
+            parts = dates_str.split(" - ")
+            conference["conferenceStartDate"] = parts[0].strip()
+            conference["conferenceEndDate"] = parts[1].strip()
+        else:
+            parsed = normalize_date_value(dates_str)
+            if parsed and "/" in parsed:
+                s, e = parsed.split("/", 1)
+                conference["conferenceStartDate"] = s
+                conference["conferenceEndDate"] = e
+            elif parsed:
+                conference["conferenceStartDate"] = parsed
+        year = _extract_year_from_text(dates_str)
+        if year:
+            conference["conferenceYear"] = year
+    if meeting.get("place"):
+        conference["conferenceLocation"] = meeting["place"]
+    if meeting.get("url"):
+        conference["conferenceUri"] = meeting["url"]
+    return conference or None
+
+
 # Canonical forms for license identifiers the repositories report in varied
 # casing/spelling. Keyed by lowercased input.
 _LICENSE_ALIASES = {
@@ -394,40 +431,9 @@ class SchemaConverter:
             result["rightsList"] = deduped
 
         # Conference/Meeting information
-        meeting = metadata.get("meeting", {})
-        if meeting:
-            conference = {}
-            if meeting.get("title"):
-                conference["conferenceName"] = meeting["title"]
-            if meeting.get("acronym"):
-                conference["conferenceAcronym"] = meeting["acronym"]
-            if meeting.get("dates"):
-                dates_str = meeting["dates"]
-                # Try structured "YYYY-MM-DD - YYYY-MM-DD" first
-                if " - " in dates_str:
-                    parts = dates_str.split(" - ")
-                    conference["conferenceStartDate"] = parts[0].strip()
-                    conference["conferenceEndDate"] = parts[1].strip()
-                else:
-                    # Free-text range ("9-10 October 2023") -> ISO start/end
-                    parsed = normalize_date_value(dates_str)
-                    if parsed and "/" in parsed:
-                        s, e = parsed.split("/", 1)
-                        conference["conferenceStartDate"] = s
-                        conference["conferenceEndDate"] = e
-                    elif parsed:
-                        conference["conferenceStartDate"] = parsed
-                # Extract year from any date format ("9-10 October, 2023", etc.)
-                year = _extract_year_from_text(dates_str)
-                if year:
-                    conference["conferenceYear"] = year
-            if meeting.get("place"):
-                conference["conferenceLocation"] = meeting["place"]
-            if meeting.get("url"):
-                conference["conferenceUri"] = meeting["url"]
-
-            if conference:
-                result["conference"] = conference
+        conference = conference_from_meeting(metadata.get("meeting", {}))
+        if conference:
+            result["conference"] = conference
 
         # Funding/Grants
         grants = metadata.get("grants", [])

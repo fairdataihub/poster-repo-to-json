@@ -25,11 +25,13 @@ if _SRC.exists():
 from poster_to_json.field_normalize import (  # noqa: E402
     normalize_conference, normalize_publisher, normalize_subjects,
     normalize_creators, normalize_formats, dedup_creators, normalize_lumped_creators,
-    align_schema, ensure_presented_date,
+    align_schema, ensure_presented_date, reconcile_publication_year,
+    sanitize_conference_dates,
 )
 
 # (name, fn) — fn(record) -> changed:bool.
 NORMALIZERS = [
+    ("publication_year", reconcile_publication_year),
     ("conference", normalize_conference),
     ("publisher", normalize_publisher),
     ("subjects", normalize_subjects),
@@ -38,6 +40,7 @@ NORMALIZERS = [
     ("creators_dedup", dedup_creators),
     ("formats", normalize_formats),
     ("schema_align", align_schema),
+    ("conf_sanitize", sanitize_conference_dates),
     ("presented_date", ensure_presented_date),
 ]
 
