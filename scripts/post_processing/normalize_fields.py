@@ -26,11 +26,12 @@ from poster_to_json.field_normalize import (  # noqa: E402
     normalize_conference, normalize_publisher, normalize_subjects,
     normalize_creators, normalize_formats, dedup_creators, normalize_lumped_creators,
     align_schema, ensure_presented_date, reconcile_publication_year,
-    sanitize_conference_dates,
+    sanitize_conference_dates, strip_invalid_dates,
 )
 
 # (name, fn) — fn(record) -> changed:bool.
 NORMALIZERS = [
+    ("strip_invalid_dates", strip_invalid_dates),
     ("publication_year", reconcile_publication_year),
     ("conference", normalize_conference),
     ("publisher", normalize_publisher),

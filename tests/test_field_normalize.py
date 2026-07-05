@@ -122,6 +122,28 @@ def test_conference_string_coercion():
     print("OK normalize_conference: string conference coerced to object")
 
 
+def test_strip_invalid_dates():
+    from poster_to_json.field_normalize import strip_invalid_dates
+    # bogus future Issued (2029) stripped; valid Presented kept
+    r = {"dates": [{"date": "2029-08-28", "dateType": "Issued"},
+                   {"date": "2020-06-06", "dateType": "Presented"}],
+         "conference": {"conferenceYear": 9999, "conferenceStartDate": "2019-05-01",
+                        "conferenceName": "X"}}
+    assert strip_invalid_dates(r)
+    assert [d["date"] for d in r["dates"]] == ["2020-06-06"]      # 2029 stripped
+    assert "conferenceYear" not in r["conference"]                # 9999 stripped
+    assert r["conference"]["conferenceStartDate"] == "2019-05-01"  # valid kept
+    # all dates invalid -> dates dropped entirely
+    r2 = {"dates": [{"date": "9999", "dateType": "Issued"}]}
+    assert strip_invalid_dates(r2) and "dates" not in r2
+    # bad end of a range strips the entry
+    r3 = {"dates": [{"date": "2020-01-01/2035-01-01", "dateType": "Presented"}]}
+    assert strip_invalid_dates(r3) and "dates" not in r3
+    # all valid -> no-op
+    assert strip_invalid_dates({"dates": [{"date": "2023-01-01", "dateType": "Issued"}]}) is False
+    print("OK strip_invalid_dates: out-of-range years stripped (hard rule)")
+
+
 def test_split_lumped_name():
     # explicit "and"
     assert split_lumped_name("Doe, John and Roe, Jane") == ["Doe, John", "Roe, Jane"]

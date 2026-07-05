@@ -858,6 +858,40 @@ def _year_int(s):
     return int(s[:4]) if s[:4].isdigit() else None
 
 
+def strip_invalid_dates(record: dict, max_year: int = 2026, min_year: int = 1900) -> bool:
+    """Hard rule: a date whose year falls outside [min_year, max_year] is not a
+    valid date, so strip it (never carry a bogus 2029/9999). Applies to every
+    dates[].date (each side of a range) and to conference start/end/year. Runs
+    BEFORE reconcile_publication_year so publicationYear only derives from valid
+    dates; an empty dates[] is dropped rather than kept."""
+    def bad(v):
+        if not v:
+            return False
+        for part in str(v).split("/"):
+            y = _year_int(part)
+            if y is not None and not (min_year <= y <= max_year):
+                return True
+        return False
+
+    changed = False
+    dates = record.get("dates")
+    if isinstance(dates, list):
+        kept = [d for d in dates if not (isinstance(d, dict) and bad(d.get("date")))]
+        if len(kept) != len(dates):
+            if kept:
+                record["dates"] = kept
+            else:
+                record.pop("dates", None)
+            changed = True
+    conf = record.get("conference")
+    if isinstance(conf, dict):
+        for k in ("conferenceStartDate", "conferenceEndDate", "conferenceYear"):
+            if bad(conf.get(k)):
+                conf.pop(k, None)
+                changed = True
+    return changed
+
+
 def reconcile_publication_year(record: dict) -> bool:
     """publicationYear must follow the deposit-authoritative Issued date (else the
     Presented date). Corrects LLM years that survived the merge (the 2025-
