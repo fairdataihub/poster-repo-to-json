@@ -159,6 +159,16 @@ Fix (all deposit-authoritative):
 
 Order in merge()/normalize_fields: reconcile_publication_year → … → sanitize_conference_dates → ensure_presented_date.
 
+**Hard rule — strip invalid dates (v0.27.0).** A date whose year is outside
+[1900, 2026] is not a valid date, so it is STRIPPED, never carried (deposits
+occasionally supply bogus 2029/9999). `strip_invalid_dates` runs FIRST (before
+reconcile_publication_year), on every `dates[].date` (each side of a range) and
+conference start/end/year; an emptied `dates[]` is dropped. This resolves the
+former "not fixable" edge cases: e.g. `13986507` (deposit `Issued=2029`) now drops
+the bogus date and leaves `publicationYear` absent rather than carrying a future
+date. Only 2 pre-2025 records were affected (the bogus-deposit ones), but the rule
+holds go-forward.
+
 **String-conference coercion (v0.26.0).** A corpus-wide re-audit after the date fix
 verified **0** remaining `py != Issued`, future `conferenceYear`, future
 `conferenceStartDate`, or future `Presented` dates across all four sections — but
