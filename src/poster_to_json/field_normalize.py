@@ -690,6 +690,9 @@ def normalize_formats(record: dict) -> bool:
 _ORCID_SCHEME_URI = "https://orcid.org"
 _ROR_SCHEME_URI = "https://ror.org"
 _SCHEMA_URL = "https://posters.science/schema/v0.2/poster_schema.json"
+# Underscore-prefixed fields the posters.science auto-index ingestion consumes and
+# that must survive align_schema's internal-field strip.
+_INGESTION_KEPT_FIELDS = frozenset({"_license_blocked"})
 
 
 def align_schema(record: dict) -> bool:
@@ -705,8 +708,12 @@ def align_schema(record: dict) -> bool:
         record["$schema"] = _SCHEMA_URL
         changed = True
 
-    # strip internal/debug fields that leaked from the extraction (_source, etc.)
-    for k in [k for k in record if isinstance(k, str) and k.startswith("_")]:
+    # strip internal/debug fields that leaked from the extraction (_source, etc.),
+    # but PRESERVE underscore fields the posters.science ingestion consumes
+    # (add-extracted-posters.ts reads `_license_blocked` to serve a placeholder
+    # thumbnail for content-blocked posters).
+    for k in [k for k in record if isinstance(k, str)
+              and k.startswith("_") and k not in _INGESTION_KEPT_FIELDS]:
         record.pop(k, None)
         changed = True
 

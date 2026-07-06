@@ -17,6 +17,7 @@ def test_align_schema():
         "$schema": "https://posters.science/schema/v0.1/poster_schema.json",
         "_source": "pdfalto",
         "_extraction_time_s": 66.0,
+        "_license_blocked": True,
         "conference": None,
         "types": {"resourceType": "Scientific Poster", "resourceTypeGeneral": "Image"},
         "creators": [
@@ -42,6 +43,7 @@ def test_align_schema():
     assert align_schema(rec)
     assert rec["$schema"] == "https://posters.science/schema/v0.2/poster_schema.json"
     assert "_source" not in rec and "_extraction_time_s" not in rec
+    assert rec.get("_license_blocked") is True   # ingestion-consumed, must survive
     assert "conference" not in rec
     assert rec["types"] == {"resourceType": "Poster", "resourceTypeGeneral": "Poster"}
     nid = rec["creators"][0]["nameIdentifiers"][0]
