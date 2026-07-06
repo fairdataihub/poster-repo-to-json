@@ -180,6 +180,36 @@ now coerces a non-empty string to `{conferenceName: …}` (empty → dropped), s
 validated and date-reachable. After the backfill, string-conference count is **0**
 and normalize_fields is idempotent (second pass = 0 changes).
 
+## Auto-index ingestion field review (v0.28–0.29, delivered 2026-07-06)
+
+Reviewed our output against the ACTUAL consuming code: `posters-science/scripts/
+add-extracted-posters.ts` (the auto-index ingestion — distinct from the submissions
+API `upload`/`release/zenodo`). It reads our `*_complete.json`, `mapToDbFields()` →
+`PosterMetadata`, `automated=true, status=published`, upserted by DOI.
+
+- **identifiers / creators** — our output matches. Ingestion lowercases the DOI (unique
+  key), reads creators name/nameType/nameIdentifiers(objects)/affiliation. NOTE: it does
+  NOT store `givenName`/`familyName` or `nameIdentifiers[].schemeURI` (we still emit them —
+  schema-correct). It also hardcodes `publisher="Zenodo"` and `format="application/pdf"`.
+- **Schema version** — the ingestion never reads `$schema`; our `$schema` is a self-
+  declaration for validation only. Both repos ship `sync_schema.py`; the schema is meant
+  to be SYNCED from `poster-json-schema` (currently v0.2), not hand-hardcoded. TODO: sync
+  our bundled schema + `_SCHEMA_URL` from that repo instead of the hand-set constant.
+- **`_license_blocked` REGRESSION (fixed v0.28.0)** — the ingestion reads `_license_blocked`
+  to serve a placeholder thumbnail for content-blocked posters. align_schema's underscore-
+  strip had removed it from 967 blocked posters. align_schema now exempts it
+  (`_INGESTION_KEPT_FIELDS`); the flag was restored corpus-wide (639 pre-2025 + 347 2025).
+- **`researchField` vs `domain` (fixed v0.29.0)** — schema uses `researchField` (we emit it),
+  but the ingestion reads `data.domain`. align_schema now mirrors `researchField → domain`
+  (schema `additionalProperties:true` allows it). ALSO flag to the team: their ingestion
+  should read `researchField`.
+- **Blocked-poster policy refined** — per decision, blocked (ND/ARR) posters KEEP the deposit
+  Abstract (open Zenodo CC0 metadata) and drop only content/captions/researchField/domain +
+  the LLM `Other` description. `license_policy.strip_extracted_content` updated.
+- **Open item — `unknown` licenses**: `classify_license` docstring says enforcement treats
+  `unknown` as `blocked`, but `enforce_license_policy.py` only acts on `blocked` (93 unknown-
+  license posters are neither flagged nor stripped). Decide whether to treat unknown as blocked.
+
 ## DataCite re-fetch mapping (`api.datacite.org/dois/{doi}` → `data.attributes`)
 
 | poster.json | DataCite attributes path | Merge rule |
