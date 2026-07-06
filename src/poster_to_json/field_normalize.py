@@ -722,6 +722,14 @@ def align_schema(record: dict) -> bool:
         record.pop("conference", None)
         changed = True
 
+    # domain: the auto-index ingestion (add-extracted-posters.ts) reads `domain`,
+    # but the schema field is `researchField`. Mirror researchField -> domain so the
+    # platform's domain column populates; researchField stays for schema conformance.
+    rf = record.get("researchField")
+    if rf and record.get("domain") != rf:
+        record["domain"] = rf
+        changed = True
+
     # types -> Poster / Poster
     t = record.get("types")
     if isinstance(t, dict) and (t.get("resourceType") != "Poster"
