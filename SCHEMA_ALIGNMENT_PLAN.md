@@ -331,6 +331,28 @@ array `additionalProperties:False`, but creators carried loose `orcid`/`ORCID`/`
 User decisions this leg: keep structured top-level extras (drop only junk singletons);
 treat `unknown` licenses as blocked. Delivered, idempotent, 0 errors.
 
+## Deposit-authoritative funding + conference (v0.35.0, 2026-07-07)
+
+"Zenodo funding wins" + conference from the deposit meeting. Confirmed our stored Zenodo is
+the LEGACY REST shape: we have `metadata.grants[]` and `metadata.meeting`, NOT InvenioRDM
+`metadata.funding[]`/`custom_fields`. The grant `funder.doi` is a CROSSREF Funder ID
+(`10.13039/...`), not a ROR. Gap analysis: funding 37 missing + 194 LLM-contaminated + 5
+incomplete; conference 937 missing conferenceName + 286 missing location.
+- **funding_from_grants + backfill_funding_from_grants.py**: build fundingReferences from
+  grants[] (funder.name->funderName, Crossref funder.doi->funderIdentifier + type, code->
+  awardNumber, title->awardTitle, url->awardUri) and REPLACE existing funding for
+  grant-bearing records. Verifier-caught fixes: carry over a resolved funderIdentifier when
+  a grant lacks funder.doi; drop awardTitle when it duplicates funderName; funderName falls
+  back to grant.title; NO schemeUri (matches corpus). ~1,800 records re-sourced.
+- **fill_conference_from_meeting + backfill_conference_fill.py**: ROOT CAUSE of the 937
+  gap -- the old backfill_conference_from_meeting.py `continue`d whenever meeting.dates did
+  not parse to a clean ISO start date, so title/place never populated. New fill decouples
+  each conference sub-field from date parsing (no-clobber; junk names rejected by the
+  clean_conference_junk gate; conferenceYear falls back to publicationYear for the schema-
+  required field). ~5,000 records filled.
+Delivered (pre 6,330 + 2025 2,199 files), idempotent (re-run 0/0), 0 errors. content/
+captions/researchField stay with poster2json (no change).
+
 ## DataCite re-fetch mapping (`api.datacite.org/dois/{doi}` → `data.attributes`)
 
 | poster.json | DataCite attributes path | Merge rule |
