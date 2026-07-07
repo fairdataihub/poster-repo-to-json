@@ -107,11 +107,14 @@ def conference_from_meeting(meeting: dict) -> Optional[dict]:
         src = dates_str
         if " - " in dates_str:
             left, _, right = dates_str.partition(" - ")
-            # only split when BOTH halves carry a year (e.g. an ISO range); a single-year
-            # day range like "5 - 7 May 2021" is parsed un-split (splitting strands the
-            # leading day and makes the last day the start).
-            if re.search(r"(?:19|20)\d{2}", left) and re.search(r"(?:19|20)\d{2}", right):
-                src = left + "/" + right
+            ry = re.search(r"(?:19|20)\d{2}", right)
+            if re.search(r"(?:19|20)\d{2}", left) and ry:
+                src = left + "/" + right                       # both halves carry a year
+            elif ry and re.search(r"[^\W\d_]", left):
+                # cross-month range, year only on the right ("31 October - 1 December
+                # 2023"): copy the year onto the month-bearing left half, then split.
+                src = left + " " + ry.group(0) + "/" + right
+            # else a day-only left ("5 - 7 May 2021") stays un-split for normalize_date_value
         parsed = normalize_date_value(src)
         s = e = None
         if parsed and "/" in parsed:

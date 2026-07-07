@@ -816,6 +816,11 @@ def test_fill_conference_from_meeting():
     fill_conference_from_meeting(r5, {"title": "Y Conf", "dates": "5 - 7 May 2021"})
     c5 = r5["conference"]
     assert (c5["conferenceStartDate"], c5["conferenceEndDate"]) == ("2021-05-05", "2021-05-07"), c5
+    # cross-month range, year only on the right half -> propagate year to the left, split
+    r8 = {}
+    fill_conference_from_meeting(r8, {"title": "Z Conf", "dates": "31 October - 1 December 2023"})
+    c8 = r8["conference"]
+    assert (c8["conferenceStartDate"], c8["conferenceEndDate"]) == ("2023-10-31", "2023-12-01"), c8
     # no-clobber: keep a real existing value, fill the gap
     r3 = {"conference": {"conferenceName": "Real Name"}}
     fill_conference_from_meeting(r3, {"title": "Meeting Title", "place": "Berlin"})

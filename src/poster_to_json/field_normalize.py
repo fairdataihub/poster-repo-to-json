@@ -2042,12 +2042,16 @@ def _meeting_date_parts(dates_str):
     src = dates_str
     if " - " in dates_str:
         left, _, right = dates_str.partition(" - ")
-        # Only split into two dates when BOTH halves carry their own year (e.g. an ISO
-        # range "2019-06-12 - 2019-06-14"). For a single-year day range like
-        # "5 - 7 May 2021" the split would strand the leading day ("5" -> the LAST day
-        # becomes the start); normalize_date_value parses the un-split string correctly.
-        if _MEETING_YEAR_RE.search(left) and _MEETING_YEAR_RE.search(right):
-            src = left + "/" + right
+        ry = _MEETING_YEAR_RE.search(right)
+        if _MEETING_YEAR_RE.search(left) and ry:
+            src = left + "/" + right                       # both halves carry a year -> split
+        elif ry and re.search(r"[^\W\d_]", left):
+            # cross-month range with the year only on the right ("31 October - 1 December
+            # 2023"): the left half has a month word but no year -> copy the year onto it
+            # so both halves resolve, then split.
+            src = left + " " + ry.group(0) + "/" + right
+        # else a day-only left ("5 - 7 May 2021") stays un-split: normalize_date_value
+        # parses the whole single-year day range correctly (splitting strands the day).
     parsed = normalize_date_value(src)
     start = end = None
     if parsed and "/" in parsed:
