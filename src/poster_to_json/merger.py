@@ -31,8 +31,15 @@ from .field_normalize import (
     normalize_lumped_creators, align_schema, ensure_presented_date,
     reconcile_publication_year, sanitize_conference_dates, strip_invalid_dates,
     normalize_name_identifiers, drop_invalid_orcids, drop_letterless_creator_fields,
-    normalize_affiliation_in_name,
+    normalize_affiliation_in_name, normalize_affiliation_names, replace_bad_llm_title,
 )
+
+
+def _first_deposit_title(metadata):
+    ts = (metadata or {}).get("titles") or []
+    if ts and isinstance(ts[0], dict):
+        return ts[0].get("title")
+    return ts[0] if ts else None
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +174,7 @@ class MetadataMerger:
                 result["conference"] = self._merge_conference(ext_val, meta_val)
 
         self._strip_metadata_placeholders(result)
+        replace_bad_llm_title(result, _first_deposit_title(metadata))
         normalize_record_dates(result)
         strip_invalid_dates(result)
         normalize_conference(result)
@@ -176,6 +184,7 @@ class MetadataMerger:
         normalize_creators(result)
         normalize_affiliation_in_name(result)
         drop_letterless_creator_fields(result)
+        normalize_affiliation_names(result)
         dedup_creators(result)
         normalize_formats(result)
         drop_invalid_orcids(result)

@@ -506,6 +506,83 @@ def test_drop_llm_affiliation_creators():
     print("OK drop-llm-affiliation: LLM-added orgs dropped, empty-deposit guard holds")
 
 
+def test_normalize_affiliation_names():
+    from poster_to_json.field_normalize import normalize_affiliation_names
+    rec = {"creators": [
+        {"name": "Doe, John", "affiliation": [
+            {"name": "Yonsei University; University of California, Davis"},
+            {"name": " "}, "&",
+            {"name": "王大学"},
+        ]},
+        {"name": "Roe, Jane", "affiliation": [
+            {"name": "University of California, Berkeley, CA, USA"},
+            {"name": "Wageningen University and Research"}]},
+        {"name": "Kim", "affiliation": [
+            {"name": "Inst A; Inst B", "affiliationIdentifier": "https://ror.org/05kytsw45",
+             "affiliationIdentifierScheme": "ROR"}]},
+        {"name": "Solo", "affiliation": [" ", "'"]},
+    ]}
+    assert normalize_affiliation_names(rec)
+    cs = rec["creators"]
+    assert len(cs) == 4
+    assert [a["name"] for a in cs[0]["affiliation"]] == [
+        "Yonsei University", "University of California, Davis", "王大学"]
+    assert len(cs[1]["affiliation"]) == 2                      # comma/and not split
+    assert cs[2]["affiliation"][0]["name"] == "Inst A; Inst B"  # ROR-bearing not split
+    assert "affiliation" not in cs[3]                          # all-junk removed, creator kept
+    assert normalize_affiliation_names(rec) is False           # idempotent
+    print("OK affiliation_names: split on ; only, drop no-letter, keep comma/and/ROR")
+
+
+def test_subjects_drop_letterless_and_split_blobs():
+    from poster_to_json.field_normalize import normalize_subjects, split_subject
+    rec = {"subjects": [{"subject": "."}, {"subject": "1"}, {"subject": "2"},
+                        {"subject": "3D"}, {"subject": "Genomics"}]}
+    assert normalize_subjects(rec)
+    assert [s["subject"] for s in rec["subjects"]] == ["3D", "Genomics"]
+    rec = {"subjects": [{"subject":
+        "Extended Reality (XR)  Virtual Reality (VR)  Augmented Reality (AR)  Mixed Reality (MR)"}]}
+    assert normalize_subjects(rec)
+    assert [s["subject"] for s in rec["subjects"]] == [
+        "Extended Reality (XR)", "Virtual Reality (VR)", "Augmented Reality (AR)", "Mixed Reality (MR)"]
+    assert split_subject(
+        "Extended Reality (XR) Virtual Reality (VR) Augmented Reality (AR) "
+        "Mixed Reality (MR) Human-Computer Interaction") == [
+        "Extended Reality (XR)", "Virtual Reality (VR)", "Augmented Reality (AR)",
+        "Mixed Reality (MR)", "Human-Computer Interaction"]
+    assert split_subject("Keywords: genomics, RNA-seq") == ["genomics", "RNA-seq"]
+    assert split_subject("Machine Learning") == ["Machine Learning"]
+    assert split_subject("Topics in Algebra") == ["Topics in Algebra"]         # not a header
+    assert split_subject("Subject-Verb Agreement") == ["Subject-Verb Agreement"]  # header-hyphen FP fixed
+    assert split_subject(
+        "Business Information Management (incl. Records, Knowledge) not elsewhere classified"
+    ) == ["Business Information Management (incl. Records, Knowledge) not elsewhere classified"]
+    print("OK subjects: letterless dropped, header/2-space/acronym split, phrases preserved")
+
+
+def test_title_fallback():
+    from poster_to_json.field_normalize import (
+        title_is_bad_llm, title_is_reasonable, replace_bad_llm_title)
+    for t in ("Aim", "SIP", "DH", "Introduction", "Results", "abstract.",
+              "This paragraph was mis read by the model as a title and it also ends here."):
+        assert title_is_bad_llm(t), t
+    for t in ("Graphene", "CRISPR", "Effect of Graphene Oxide on Cancer Cell Viability"):
+        assert not title_is_bad_llm(t), t
+    assert title_is_reasonable("Effect of X on Cancer Cell Viability")
+    assert not title_is_reasonable("poster_final_v2.pdf")     # filename
+    assert not title_is_reasonable("Untitled Poster")         # merger placeholder (required fix)
+    assert not title_is_reasonable("Aim")
+    dep = "Minimum Information Standards for Chemistry Data in NFDI4Chem"
+    rec = {"titles": [{"title": "Aim", "lang": "en"}]}
+    assert replace_bad_llm_title(rec, dep) and rec["titles"][0]["title"] == dep
+    assert rec["titles"][0]["lang"] == "en"
+    assert replace_bad_llm_title(rec, dep) is False           # idempotent
+    good = {"titles": [{"title": "Photocatalytic Water Splitting on TiO2"}]}
+    assert replace_bad_llm_title(good, dep) is False          # good LLM title kept
+    assert replace_bad_llm_title({"titles": [{"title": "Aim"}]}, "Untitled Poster") is False  # placeholder deposit
+    print("OK title_fallback: bad LLM titles -> deposit title; placeholders/filenames rejected")
+
+
 if __name__ == "__main__":
     for k, v in sorted(globals().items()):
         if k.startswith("test_"):

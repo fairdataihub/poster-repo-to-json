@@ -316,33 +316,82 @@ def normalize_publisher(record: dict, source: str = None) -> bool:
     return False
 
 
-def split_subject(value: str):
-    """Split a lumped keyword string into individual keywords on top-level commas
-    and semicolons. Delimiters inside brackets are ignored, so taxonomy terms
-    like "Business Information Management (incl. Records, Knowledge) not elsewhere
-    classified" stay whole."""
-    parts = []
-    depth = 0
-    cur = ""
-    for ch in value:
+# A leading keyword-list header to strip: the compound "Keywords and subjects", or a
+# header word (Keywords/Subject(s)/Topic(s)) followed by ':' OR a space-dash-space (so
+# "Subject-Verb Agreement" is NOT stripped, but "Keywords: x" and "Keywords - x" are).
+_SUBJECT_HEADER_RE = re.compile(
+    r"^\s*(?:"
+    r"key\s*words?\s+and\s+subjects?"
+    r"|(?:key\s*words?|subjects?|topics?)(?::|\s+[-–—]\s+)"
+    r")\s*",
+    re.I,
+)
+_BLOB_MIN_CHARS = 80
+_BLOB_MIN_TOKENS = 8
+# Split a single-spaced blob right AFTER a parenthetical acronym ("... (XR) Next").
+_ACRONYM_SPLIT_RE = re.compile(r"(\([A-Z0-9][A-Za-z0-9]{0,7}\))\s+(?=[A-Z])")
+
+
+def _split_top_level(value):
+    """Bracket-aware split on top-level ',' / ';' OR any run of 2+ spaces. Delimiters
+    inside (), [], {} are ignored (taxonomy terms stay whole); single spaces are kept
+    (a normal phrase like "Machine Learning" is not split)."""
+    parts, depth, cur, i, n = [], 0, "", 0, len(value)
+    while i < n:
+        ch = value[i]
         if ch in "([{":
             depth += 1
             cur += ch
+            i += 1
         elif ch in ")]}":
             depth = max(0, depth - 1)
             cur += ch
-        elif ch in ",;" and depth == 0:
+            i += 1
+        elif depth == 0 and ch in ",;":
             parts.append(cur)
             cur = ""
+            i += 1
+        elif depth == 0 and ch == " " and i + 1 < n and value[i + 1] == " ":
+            parts.append(cur)
+            cur = ""
+            while i < n and value[i] == " ":
+                i += 1
         else:
             cur += ch
+            i += 1
     parts.append(cur)
     return [p.strip() for p in parts if p.strip()]
 
 
+def _split_keyword_blob(part):
+    """Only a long BLOB (> _BLOB_MIN_CHARS chars or > _BLOB_MIN_TOKENS tokens) is split
+    further, and only when it holds 2+ parenthetical-acronym boundaries (a list like
+    "Extended Reality (XR) Virtual Reality (VR) ..."), so a single legit subject with
+    one parenthetical is never split."""
+    if len(part) <= _BLOB_MIN_CHARS and len(part.split()) <= _BLOB_MIN_TOKENS:
+        return [part]
+    if len(_ACRONYM_SPLIT_RE.findall(part)) < 2:
+        return [part]
+    pieces = _ACRONYM_SPLIT_RE.sub(r"\1\n", part).split("\n")
+    return [p.strip() for p in pieces if p.strip()]
+
+
+def split_subject(value: str):
+    """Split a lumped keyword string into individual keywords. Strips a leading
+    "Keywords and subjects"/"Keywords:"/"Subjects:"/"Topics:" header, then splits on
+    top-level commas/semicolons AND runs of 2+ spaces (bracket-aware), then splits a
+    remaining long keyword BLOB after repeated parenthetical acronyms. Conservative:
+    single-spaced normal phrases and bracketed taxonomy terms stay whole."""
+    s = _SUBJECT_HEADER_RE.sub("", value, count=1)
+    out = []
+    for part in _split_top_level(s):
+        out.extend(_split_keyword_blob(part))
+    return out
+
+
 def normalize_subjects(record: dict) -> bool:
-    """Split lumped keywords (top-level comma/semicolon), drop junk
-    (empty/placeholder/URL/email), and dedup."""
+    """Split lumped keywords (header/comma/semicolon/2+ spaces/acronym-blob), drop junk
+    (empty/placeholder/URL/email/letterless), and dedup."""
     subs = record.get("subjects")
     if not isinstance(subs, list):
         return False
@@ -362,7 +411,8 @@ def normalize_subjects(record: dict) -> bool:
             if nv != v:
                 changed = True
             v = nv
-            if not v or _is_placeholder(v) or _URL_RE.search(v) or _EMAIL_RE.search(v):
+            if (not v or _is_placeholder(v) or not _has_letter(v)
+                    or _URL_RE.search(v) or _EMAIL_RE.search(v)):
                 changed = True
                 continue
             key = v.lower()
@@ -1291,6 +1341,158 @@ def drop_llm_affiliation_creators(record: dict, deposit_creator_names) -> bool:
     if kept == cres or not kept:                  # no change, or would empty -> refuse
         return False
     record["creators"] = kept
+    return True
+
+
+def normalize_affiliation_names(record: dict) -> bool:
+    """Clean and split creator affiliation NAMES in place. Per creator: NFKC-normalize
+    each name; drop any entry whose name holds no letter (Unicode-aware via _has_letter,
+    so CJK/accented names survive); and split a semicolon-lumped multi-institution name
+    into separate entries. Splits ONLY on ';' (never comma -- a single-institution
+    address like "University of California, Berkeley, CA, USA" stays one -- and never
+    'and'/'&'), and ONLY when the entry has no affiliationIdentifier (a ROR-bearing
+    lumped entry is kept intact). Identical resulting names within a creator are deduped
+    (an identifier-bearing form wins). Input form preserved. Record-only, idempotent,
+    never drops a creator."""
+    cres = record.get("creators")
+    if not isinstance(cres, list):
+        return False
+    changed = False
+    out = []
+    for c in cres:
+        if not isinstance(c, dict) or not isinstance(c.get("affiliation"), list):
+            out.append(c)
+            continue
+        affs = c["affiliation"]
+        new_affs, new_hids, seen = [], [], {}
+        for a in affs:
+            if isinstance(a, dict):
+                name, has_id = a.get("name"), bool(a.get("affiliationIdentifier"))
+            elif isinstance(a, str):
+                name, has_id = a, False
+            else:
+                name, has_id = None, False
+            if not isinstance(name, str):
+                new_affs.append(a)
+                new_hids.append(False)
+                continue
+            parts = [name] if has_id else name.split(";")
+            for part in parts:
+                nv = unicodedata.normalize("NFKC", part).strip()
+                if not _has_letter(nv):
+                    continue
+                key = nv.lower()
+                entry = {**a, "name": nv} if isinstance(a, dict) else nv
+                if key in seen:
+                    pos = seen[key]
+                    if has_id and not new_hids[pos]:
+                        new_affs[pos], new_hids[pos] = entry, True
+                    continue
+                seen[key] = len(new_affs)
+                new_affs.append(entry)
+                new_hids.append(has_id)
+        if new_affs != affs:
+            changed = True
+            cc = dict(c)
+            if new_affs:
+                cc["affiliation"] = new_affs
+            else:
+                cc.pop("affiliation", None)
+            out.append(cc)
+        else:
+            out.append(c)
+    if changed:
+        record["creators"] = out
+        return True
+    return False
+
+
+_TITLE_SECTION_HEADERS = frozenset({
+    "aim", "aims", "introduction", "background", "methods", "method", "results",
+    "conclusion", "conclusions", "discussion", "objective", "objectives",
+    "summary", "abstract", "materials and methods", "results and discussion",
+    "acknowledgements", "acknowledgments", "references", "overview", "purpose",
+    "hypothesis",
+})
+# merger-level title placeholders (field_normalize must not import from merger).
+_TITLE_PLACEHOLDERS = frozenset({
+    "untitled poster", "poster title", "main poster title", "scientific poster",
+    "untitled", "poster",
+})
+_TITLE_FILENAME_RE = re.compile(
+    r"\.(pdf|docx?|pptx?|xlsx?|jpe?g|png|tiff?|gif|zip|csv|txt|eps|ai|svg)$", re.I)
+_MAX_TITLE_LEN = 250
+_MIN_TITLE_LEN = 5
+
+
+def _alnum_count(s) -> int:
+    return sum(1 for ch in str(s) if ch.isalnum())
+
+
+def title_is_bad_llm(title) -> bool:
+    """True if a poster2json (LLM) title is CLEARLY wrong and should fall back to the
+    deposit title: (i) too short (<=4 alphanumeric chars, or a single token <=5 chars);
+    (ii) too long / a paragraph (>250 chars, or a >=12-word sentence ending in '.');
+    (iii) a bare section-header word. A normal poster title is never flagged."""
+    if not isinstance(title, str):
+        return False
+    s = title.strip()
+    low = s.lower().rstrip(" .:;,").strip()
+    if low in _TITLE_SECTION_HEADERS:
+        return True
+    if _alnum_count(s) <= 4:
+        return True
+    if len(s.split()) == 1 and len(s) <= 5:
+        return True
+    if len(s) > _MAX_TITLE_LEN:
+        return True
+    if s.endswith(".") and len(s.split()) >= 12:
+        return True
+    return False
+
+
+def title_is_reasonable(title) -> bool:
+    """True if a candidate DEPOSIT title is usable as a replacement: real, non-
+    placeholder, non-filename, sane length (~5..250), and not itself a bad title."""
+    if not isinstance(title, str):
+        return False
+    s = title.strip()
+    if not (_MIN_TITLE_LEN <= len(s) <= _MAX_TITLE_LEN):
+        return False
+    if _is_placeholder(s) or _TITLE_FILENAME_RE.search(s):
+        return False
+    if s.lower() in _TITLE_PLACEHOLDERS:
+        return False
+    return not title_is_bad_llm(s)
+
+
+def _title_str(entry):
+    if isinstance(entry, dict):
+        return entry.get("title")
+    if isinstance(entry, str):
+        return entry
+    return None
+
+
+def replace_bad_llm_title(record: dict, deposit_title=None) -> bool:
+    """Fall back to the DEPOSIT title when titles[0] (LLM) is clearly bad (a section-
+    header fragment or an abstract paragraph). Needs the raw deposit title passed in.
+    No-op unless the deposit title is itself reasonable, so a good LLM title is never
+    worsened and a bad/placeholder/missing deposit title never overwrites anything.
+    Idempotent."""
+    if not title_is_reasonable(deposit_title):
+        return False
+    titles = record.get("titles")
+    if not isinstance(titles, list) or not titles:
+        return False
+    cur = _title_str(titles[0])
+    if not title_is_bad_llm(cur):
+        return False
+    new = deposit_title.strip()
+    if cur is not None and new == cur:
+        return False
+    entry = titles[0]
+    titles[0] = {**entry, "title": new} if isinstance(entry, dict) else {"title": new}
     return True
 
 
