@@ -297,6 +297,21 @@ PHRASING, not length. Anomalies fixed (built inline, precision-first + dry-run-r
 User decision: clean obvious junk in the LLM content (sections/captions) precision-first,
 keep all real content. Delivered, idempotent, 0 errors, junk verified 0-remaining.
 
+**Portion 4 adversarial pass + restore (v0.33.1):** a 3-lens-per-fix verification workflow
+(12 skeptics + 4 judges) on the shipped code found ONE real defect class -- ASCII-only
+checks silently deleting non-ASCII values on the multilingual corpus: awardNumber validity
+`[A-Za-z0-9]`, conference name/acronym length gauge `re.sub([^A-Za-z0-9])`, sections
+`len(body)>2`, captions `len<=2`. All four made Unicode-aware (any(ch.isalnum()) / sum of
+isalnum / isascii-gated), plus multi-char numeric section titles ("2024") kept as headings.
+Because v0.33.0 already ran LIVE, it had deleted real data: quantified the loss from the
+intact raw sources = 10 recoverable non-ASCII conference names (Cyrillic/Greek) + 47 short
+non-ASCII caption entries (0 sections, 0 award). restore_portion4_unicode.py pulls conference
+names from deposit meeting.title OR the extraction and lost captions from the extraction
+(non-blocked only), guarded so only names the fixed rule keeps are restored. Restored,
+idempotent, redelivered; fixed normalizers leave the restored data stable (0 changes).
+LESSON: use Unicode-aware alnum/letter tests everywhere -- never ASCII [A-Za-z0-9] or raw
+codepoint-length cutoffs -- on this multilingual corpus.
+
 ## DataCite re-fetch mapping (`api.datacite.org/dois/{doi}` → `data.attributes`)
 
 | poster.json | DataCite attributes path | Merge rule |
