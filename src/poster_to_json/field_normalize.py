@@ -1856,3 +1856,81 @@ def drop_junk_captions(record: dict) -> bool:
             else:
                 record.pop(key, None)
     return changed
+
+
+# Schema whitelists (poster_schema.json: every nested array is additionalProperties:False;
+# top-level is additionalProperties:true but we drop junk keys, keeping DataCite fields,
+# our intentional extras, and the approved structured extras).
+_SCHEMA_ITEM_KEYS = {
+    "creators": frozenset({"name", "nameType", "givenName", "familyName",
+                           "nameIdentifiers", "affiliation"}),
+    "subjects": frozenset({"subject", "schemeUri", "valueUri", "subjectScheme",
+                           "classificationCode"}),
+    "dates": frozenset({"date", "dateType", "dateInformation"}),
+    "relatedIdentifiers": frozenset({"relatedIdentifier", "relatedIdentifierType",
+                                     "relatedMetadataScheme", "relationType",
+                                     "relationTypeInformation", "resourceTypeGeneral",
+                                     "schemeType", "schemeURI"}),
+    "fundingReferences": frozenset({"funderName", "funderIdentifier", "funderIdentifierType",
+                                    "awardNumber", "awardTitle", "awardUri", "schemeUri"}),
+    "rightsList": frozenset({"rights", "rightsUri", "rightsIdentifier",
+                             "rightsIdentifierScheme", "schemeUri"}),
+    "titles": frozenset({"title", "titleType"}),
+    "descriptions": frozenset({"description", "descriptionType"}),
+    "identifiers": frozenset({"identifier", "identifierType"}),
+}
+_SCHEMA_TOP_LEVEL = frozenset({
+    "conference", "content", "creators", "dates", "descriptions", "formats",
+    "fundingReferences", "identifiers", "imageCaptions", "language", "publicationYear",
+    "publisher", "relatedIdentifiers", "researchField", "rightsList", "sizes", "subjects",
+    "tableCaptions", "titles", "types", "version",
+    "$schema", "domain", "_license_blocked",          # intentional non-schema extras
+    "references", "References", "acknowledgements", "acknowledgments", "acknowledgement",
+    "Acknowledgements", "contact", "contactInfo", "contactInformation", "contactDetails",
+    "keyFindings", "Key Findings",                     # approved structured extras (kept)
+})
+_CREATOR_ORCID_KEYS = ("orcid", "ORCID", "ORCiD", "orcidId", "ORCID_ID")
+
+
+def conform_to_schema(record: dict) -> bool:
+    """Enforce poster_schema.json additionalProperties:False on every nested array
+    (strip creator/subject/date/... item keys to the schema whitelist) and drop junk
+    non-schema top-level keys (keeping the DataCite fields, our intentional extras
+    $schema/domain/_license_blocked, and the approved structured extras references/
+    acknowledgements/contact/keyFindings). A creator ORCID held in a loose 'orcid'/
+    'ORCID' key is rescued into nameIdentifiers before the strip so no id is lost.
+    Idempotent, record-only."""
+    changed = False
+    # (1) rescue loose creator ORCID keys into nameIdentifiers before stripping them
+    for c in record.get("creators") or []:
+        if not isinstance(c, dict):
+            continue
+        for ok in _CREATOR_ORCID_KEYS:
+            if ok not in c:
+                continue
+            m = _ORCID_ID_RE.search(str(c.get(ok) or ""))
+            if m and _orcid_checksum_ok(m.group(1)):
+                url = f"https://orcid.org/{m.group(1)}"
+                nids = c.get("nameIdentifiers")
+                if not isinstance(nids, list):
+                    nids = []
+                if not any(isinstance(n, dict) and n.get("nameIdentifier") == url for n in nids):
+                    nids.append({"nameIdentifier": url, "nameIdentifierScheme": "ORCID",
+                                 "schemeURI": _ORCID_SCHEME_URI})
+                    c["nameIdentifiers"] = nids
+                    changed = True
+    # (2) whitelist-strip every nested-array item (additionalProperties:False)
+    for fld, allowed in _SCHEMA_ITEM_KEYS.items():
+        arr = record.get(fld)
+        if not isinstance(arr, list):
+            continue
+        for item in arr:
+            if isinstance(item, dict):
+                for k in [k for k in item if k not in allowed]:
+                    item.pop(k, None)
+                    changed = True
+    # (3) drop junk non-schema top-level keys (keep whitelist)
+    for k in [k for k in record if k not in _SCHEMA_TOP_LEVEL]:
+        record.pop(k, None)
+        changed = True
+    return changed

@@ -741,6 +741,30 @@ def test_portion4_unicode_preservation():
     print("OK portion4 unicode: non-ASCII award/conference/section/caption values preserved")
 
 
+def test_conform_to_schema():
+    from poster_to_json.field_normalize import conform_to_schema
+    rec = {
+        "$schema": "x", "titles": [{"title": "T", "titleType": None, "junk": 1}],
+        "creators": [{"name": "Doe, J", "givenName": "J", "familyName": "Doe",
+                      "orcid": "0000-0002-1694-233X", "degree": "PhD", "email": "a@b.c",
+                      "content": {"leaked": "poster"}}],   # extra keys + leaked poster field
+        "subjects": [{"subject": "AI", "content": "leak", "conference": "x"}],
+        "references": [{"id": 1, "citation": "Smith 2020"}],   # structured extra -> kept
+        "acknowledgements": "Thanks to funders",                # structured extra -> kept
+        "footer": "page 1 of 2", "webLink": "http://x", "sectionTitle": "Intro",  # junk -> dropped
+    }
+    assert conform_to_schema(rec)
+    c = rec["creators"][0]
+    assert set(c.keys()) == {"name", "givenName", "familyName", "nameIdentifiers"}   # stripped to schema
+    assert c["nameIdentifiers"][0]["nameIdentifier"] == "https://orcid.org/0000-0002-1694-233X"  # ORCID rescued
+    assert set(rec["subjects"][0].keys()) == {"subject"}                              # leaked keys stripped
+    assert set(rec["titles"][0].keys()) <= {"title", "titleType"}                     # junk stripped
+    assert "references" in rec and "acknowledgements" in rec                          # structured extras kept
+    assert "footer" not in rec and "webLink" not in rec and "sectionTitle" not in rec  # junk dropped
+    assert conform_to_schema(rec) is False                                            # idempotent
+    print("OK conform_to_schema: nested whitelist-strip + ORCID rescue + junk top-level drop")
+
+
 if __name__ == "__main__":
     for k, v in sorted(globals().items()):
         if k.startswith("test_"):

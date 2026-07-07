@@ -34,7 +34,7 @@ from .field_normalize import (
     normalize_affiliation_in_name, normalize_affiliation_names, replace_bad_llm_title,
     collapse_multidate_ranges, normalize_version, drop_junk_related_identifiers,
     drop_junk_descriptions, drop_junk_funding, clean_conference_junk,
-    drop_junk_sections, drop_junk_captions,
+    drop_junk_sections, drop_junk_captions, conform_to_schema,
 )
 
 
@@ -204,6 +204,7 @@ class MetadataMerger:
         reconcile_publication_year(result)
         sanitize_conference_dates(result)
         ensure_presented_date(result)
+        conform_to_schema(result)          # final schema-conformance gate (runs last)
 
         return result
 

@@ -50,7 +50,7 @@ def main():
         verdict = classify_license(rights)
         classifications[verdict] += 1
 
-        if verdict == "blocked":
+        if verdict in ("blocked", "unknown"):   # unknown treated as blocked (per policy)
             for entry in (rights if isinstance(rights, list) else [rights]):
                 if isinstance(entry, dict):
                     label = entry.get("rightsIdentifier") or entry.get("rights") or "empty"
