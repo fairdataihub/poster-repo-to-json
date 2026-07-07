@@ -26,7 +26,8 @@ from poster_to_json.field_normalize import (  # noqa: E402
     normalize_conference, normalize_publisher, normalize_subjects,
     normalize_creators, normalize_formats, dedup_creators, normalize_lumped_creators,
     align_schema, ensure_presented_date, reconcile_publication_year,
-    sanitize_conference_dates, strip_invalid_dates,
+    sanitize_conference_dates, strip_invalid_dates, normalize_name_identifiers,
+    drop_invalid_orcids, drop_letterless_creator_fields, normalize_affiliation_in_name,
 )
 
 # (name, fn) — fn(record) -> changed:bool.
@@ -38,9 +39,13 @@ NORMALIZERS = [
     ("subjects", normalize_subjects),
     ("lumped_split", normalize_lumped_creators),
     ("creators", normalize_creators),
+    ("affil_in_name", normalize_affiliation_in_name),
+    ("creators_letterless", drop_letterless_creator_fields),
     ("creators_dedup", dedup_creators),
     ("formats", normalize_formats),
+    ("orcid_drop_invalid", drop_invalid_orcids),
     ("schema_align", align_schema),
+    ("name_identifiers", normalize_name_identifiers),
     ("conf_sanitize", sanitize_conference_dates),
     ("presented_date", ensure_presented_date),
 ]

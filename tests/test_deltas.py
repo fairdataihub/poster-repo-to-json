@@ -35,7 +35,7 @@ def test_creators_repo_wins_extraction_enriches():
         "content": {"sections": [{"sectionTitle": "x", "sectionContent": "y"}]},
         "creators": [
             {"name": "Smith, Jane",
-             "nameIdentifiers": [{"nameIdentifier": "0000-0001", "nameIdentifierScheme": "ORCID"}],
+             "nameIdentifiers": [{"nameIdentifier": "0000-0002-1694-233X", "nameIdentifierScheme": "ORCID"}],
              "affiliation": [{"name": "Acme University",
                               "affiliationIdentifier": "https://ror.org/05acme",
                               "affiliationIdentifierScheme": "ROR"}]},
@@ -54,7 +54,7 @@ def test_creators_repo_wins_extraction_enriches():
     names = [c["name"] for c in out["creators"]]
     assert names == ["Doe, John", "Smith, Jane"], f"order should be Zenodo's: {names}"
     smith = out["creators"][1]
-    assert smith["nameIdentifiers"][0]["nameIdentifier"] == "0000-0001", "ORCID enriched"
+    assert smith["nameIdentifiers"][0]["nameIdentifier"] == "https://orcid.org/0000-0002-1694-233X", "ORCID enriched"
     assert smith["affiliation"][0]["affiliationIdentifier"] == "https://ror.org/05acme", "ROR grafted"
     assert smith["affiliation"][0]["name"] == "Acme University", "repo affiliation text kept"
     print("OK creators: repo order kept, ORCID+ROR enriched")

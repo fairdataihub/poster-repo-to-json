@@ -103,24 +103,44 @@ def _looks_given(p) -> bool:
         len(re.sub(r"[^A-Za-z]", "", t)) >= 2 for t in toks)
 
 
+# A trailing "author list" abbreviation that stands in for the un-named rest of
+# the authors, not a real person ("and others", "et al", "colleagues", ...).
+_LIST_REMNANT_RE = re.compile(
+    r"^(?:and\s+|&\s*)?(?:others?|et\s*\.?\s*al\.?|colleagues?|"
+    r"co[-\s]?workers?|co[-\s]?authors?|the\s+team)$", re.I)
+
+
 def split_lumped_name(name):
     """Split a single lumped multi-author name into individual names, but ONLY
-    when the structure is unambiguous. Returns a list of >=2 names, else None
-    (leave the name untouched)."""
+    when the structure is unambiguous. Returns a list of >=2 names (or a single
+    name when a list-abbreviation remnant like "and others"/"et al" was the only
+    thing dropped), else None (leave the name untouched)."""
     s = str(name).strip()
     if creator_name_is_junk(s):   # e.g. a work-package label, not an author list
         return None
     has_org = bool(_ORG_RE.search(s))
     # 1) explicit multi-author delimiters. Skipped when an org keyword is present
-    # (a single org "... Agency for X and Y" must not split on "and"). Require a
-    # "Family, Given" comma or 3+ multi-word parts so orgs aren't mis-split.
+    # (a single org "... Agency for X and Y" must not split on "and"). Drop trailing
+    # list-abbreviation remnants ("... and others", "... et al"), then split when
+    # parts carry a "Family, Given" comma OR every part is a full multi-word name.
     if not has_org:
         for delim in (r"\s+and\s+", r"\s*&\s*", r"\s*;\s*"):
-            parts = [p.strip() for p in re.split(delim, s) if p.strip()]
-            if len(parts) >= 2 and all(_valid_name_part(p) for p in parts):
-                if any("," in p for p in parts) or (
-                        len(parts) >= 3 and all(len(p.split()) >= 2 for p in parts)):
-                    return parts
+            raw = [p.strip() for p in re.split(delim, s) if p.strip()]
+            if len(raw) < 2:
+                continue
+            parts = [p for p in raw if not _LIST_REMNANT_RE.match(p)]
+            dropped = len(parts) != len(raw)
+            if not parts or not all(_valid_name_part(p) for p in parts):
+                continue
+            multi = any("," in p for p in parts) or all(
+                len(p.split()) >= 2 for p in parts)
+            if len(parts) >= 2 and multi:
+                return parts
+            # a lone real author left after dropping a remnant: emit it only when it
+            # is a confident full name / comma-form.
+            if dropped and len(parts) == 1 and (
+                    "," in parts[0] or len(parts[0].split()) >= 2):
+                return parts
     # 2) comma-separated lists
     if s.count(",") >= 3:
         parts = [p.strip(" .") for p in s.split(",") if p.strip(" .")]
@@ -689,6 +709,8 @@ def normalize_formats(record: dict) -> bool:
 
 _ORCID_SCHEME_URI = "https://orcid.org"
 _ROR_SCHEME_URI = "https://ror.org"
+_ISNI_SCHEME_URI = "https://isni.org"
+_GND_SCHEME_URI = "https://d-nb.info/gnd/"
 _SCHEMA_URL = "https://posters.science/schema/v0.2/poster_schema.json"
 # Underscore-prefixed fields the posters.science auto-index ingestion consumes and
 # that must survive align_schema's internal-field strip.
@@ -905,6 +927,340 @@ def strip_invalid_dates(record: dict, max_year: int = 2026, min_year: int = 1900
                 conf.pop(k, None)
                 changed = True
     return changed
+
+
+def normalize_name_identifiers(record: dict) -> bool:
+    """URL-normalize creator nameIdentifiers for the ROR/ISNI/GND schemes and add
+    their canonical DataCite schemeURI, mirroring align_schema's ORCID handling
+    (which remains the authority for ORCID and is not duplicated here). A bare id
+    becomes its canonical URL form; a value already in http(s) form keeps its value
+    but still gains a schemeURI. The URL scheme and unknown schemes are left
+    untouched (no fabricated schemeURI); affiliation identifiers are never touched.
+    Idempotent: every write is guarded so a second call returns False."""
+    changed = False
+    for c in record.get("creators") or []:
+        if not isinstance(c, dict):
+            continue
+        for nid in c.get("nameIdentifiers") or []:
+            if not isinstance(nid, dict):
+                continue
+            val = nid.get("nameIdentifier")
+            if not isinstance(val, str) or not val:
+                continue
+            scheme = nid.get("nameIdentifierScheme")
+            if scheme == "ROR":
+                scheme_uri = _ROR_SCHEME_URI
+                if not val.startswith("http"):
+                    ident = val.strip().strip("/").rsplit("/", 1)[-1]
+                    if ident and val != f"https://ror.org/{ident}":
+                        nid["nameIdentifier"] = f"https://ror.org/{ident}"
+                        changed = True
+            elif scheme == "ISNI":
+                scheme_uri = _ISNI_SCHEME_URI
+                if not val.startswith("http"):
+                    ident = val.strip().replace(" ", "").replace("-", "")
+                    if ident and val != f"https://isni.org/isni/{ident}":
+                        nid["nameIdentifier"] = f"https://isni.org/isni/{ident}"
+                        changed = True
+            elif scheme == "GND":
+                scheme_uri = _GND_SCHEME_URI
+                if not val.startswith("http"):
+                    ident = val.strip().strip("/").rsplit("/", 1)[-1]
+                    if ident and val != f"https://d-nb.info/gnd/{ident}":
+                        nid["nameIdentifier"] = f"https://d-nb.info/gnd/{ident}"
+                        changed = True
+            else:
+                continue  # ORCID: align_schema owns it; URL/unknown: leave untouched
+            if nid.get("schemeURI") != scheme_uri:
+                nid["schemeURI"] = scheme_uri
+                changed = True
+    return changed
+
+
+_ORCID_ID_RE = re.compile(r"(\d{4}-\d{4}-\d{4}-\d{3}[\dxX])")
+
+
+def _orcid_checksum_ok(orcid: str) -> bool:
+    """Validate an ORCID's ISO 7064 MOD 11-2 check digit (last char, may be 'X').
+    All-zero ids and anything not 15 base digits + one check char are invalid."""
+    d = orcid.replace("-", "").upper()
+    if len(d) != 16 or not re.fullmatch(r"\d{15}[\dX]", d):
+        return False
+    if d[:15] == "0" * 15:
+        return False
+    total = 0
+    for ch in d[:15]:
+        total = (total + int(ch)) * 2
+    check = (12 - total % 11) % 11
+    expected = "X" if check == 10 else str(check)
+    return expected == d[15]
+
+
+def drop_invalid_orcids(record: dict) -> bool:
+    """Drop structurally-invalid ORCID nameIdentifiers from creators: those whose
+    16-digit value fails the ISO 7064 MOD 11-2 check digit, are all-zeros, or carry
+    no parseable ORCID. Only ORCID-scheme entries are candidates; a VALID ORCID is
+    never removed. If a creator's nameIdentifiers list is emptied, the key is
+    removed. Runs BEFORE align_schema's ORCID URL-normalization so it matches both
+    bare and URL forms."""
+    cres = record.get("creators")
+    if not isinstance(cres, list):
+        return False
+    changed = False
+    for c in cres:
+        if not isinstance(c, dict):
+            continue
+        nids = c.get("nameIdentifiers")
+        if not isinstance(nids, list):
+            continue
+        kept = []
+        for nid in nids:
+            if isinstance(nid, dict) and nid.get("nameIdentifierScheme") == "ORCID":
+                m = _ORCID_ID_RE.search(str(nid.get("nameIdentifier", "")))
+                if not m or not _orcid_checksum_ok(m.group(1)):
+                    changed = True
+                    continue
+            kept.append(nid)
+        if kept != nids:
+            if kept:
+                c["nameIdentifiers"] = kept
+            else:
+                c.pop("nameIdentifiers", None)
+            changed = True
+    return changed
+
+
+def _has_letter(v) -> bool:
+    """True iff the value contains at least one alphabetic character (Unicode-aware,
+    so CJK/Cyrillic/Greek/Arabic names pass). The sole validity test for a creator
+    name part: alphabetic short surnames ("Ng", "Li"), initials ("J."), and native-
+    script names pass; pure digit/punctuation values ("2", "123", "-", "&") do not."""
+    return v is not None and any(ch.isalpha() for ch in str(v))
+
+
+# creator sub-fields whose letterless values are dropped in place (the `name`
+# field, when letterless, drops the whole creator instead).
+_CREATOR_LETTER_FIELDS = ("givenName", "familyName")
+
+
+def drop_letterless_creator_fields(record: dict) -> bool:
+    """Drop creator values that contain no letter (e.g. "2", "123", "-", "&"). A
+    whole creator is dropped when its `name` is letterless (only while another
+    creator remains -- never leave zero creators); an individual `givenName`/
+    `familyName` is deleted when letterless, keeping the creator. Sole criterion is
+    'has at least one letter', so real short surnames ("Ng", "Li") and native-script
+    names are always kept. Idempotent."""
+    cres = record.get("creators")
+    if not isinstance(cres, list):
+        return False
+    changed = False
+    processed = []
+    for c in cres:
+        if not isinstance(c, dict):
+            processed.append(c)
+            continue
+        cc = c
+        for part in _CREATOR_LETTER_FIELDS:
+            if part in cc and not _has_letter(cc.get(part)):
+                if cc is c:            # copy-on-write; keep untouched creators' identity
+                    cc = dict(c)
+                cc.pop(part, None)
+                changed = True
+        processed.append(cc)
+
+    def _name_letterless(c) -> bool:
+        return (isinstance(c, dict) and c.get("name") is not None
+                and not _has_letter(c.get("name")))
+
+    kept = [c for c in processed if not _name_letterless(c)]
+    if not kept:                       # every name letterless -> never leave zero creators
+        kept = processed
+    if kept != processed:
+        changed = True
+    if changed:
+        record["creators"] = kept
+        return True
+    return False
+
+
+# ============ surgical affiliation-in-name cleanup ============
+# High-precision institution/org markers (whole-word). Deliberately EXCLUDES stems
+# that collide with real surnames ("Company", bare "AG"/"S.L"); whole-word matching
+# never fires inside a surname (Torres-Company, Companys).
+_INSTITUTION_MARKER_RE = re.compile(
+    r"""(?xi)
+    \bDept\b\.?
+    | \b(?: Department | Universit\w* | Institut\w* | Hospital | Laborator\w*
+          | Museum | Academy | Ministry | Observ\w* | Faculty | Consiglio
+          | Commission | College | Foundation ) \b
+    | \b(?: Centre | Center | Agency ) \s+ for \b
+    | ;
+    | \b(?: GmbH | Ltd | Inc | SAS ) \b
+    """,
+)
+# Sentence-final ". " boundary: period preceded by >=2 letters (so a lone initial
+# "J." is not a boundary) and followed by whitespace.
+_SENTENCE_BOUNDARY_RE = re.compile(r"(?<=[^\W\d_]{2})\.\s+")
+_ORG_SUFFIX_RE = re.compile(r"\b(?:GmbH|Ltd|Inc|SAS)\b", re.I)
+
+
+def _looks_person_name(s) -> bool:
+    s = str(s).strip()
+    if not s or _INSTITUTION_MARKER_RE.search(s):
+        return False
+    if not re.search(r"[^\W\d_]{2,}", s):
+        return False
+    return len(s.split()) <= 6
+
+
+def _family_is_lone_marker(name) -> bool:
+    """A comma 'Family, Given' whose family is a single institution-marker token is a
+    real person ('Hospital, Marc Antoni Pere'), never an org — regardless of the
+    given-name shape/length. Protects such people from the affiliation detector."""
+    fam, giv, has_comma = _fam_given(name)
+    if not has_comma or not str(giv).strip():
+        return False
+    fam = str(fam).strip()
+    return (len(fam.split()) == 1 and bool(_INSTITUTION_MARKER_RE.search(fam))
+            and not _INSTITUTION_MARKER_RE.search(str(giv)))
+
+
+def _is_clean_personal_name(name) -> bool:
+    s = str(name).strip()
+    if not s or ";" in s or ". " in s or _ORG_SUFFIX_RE.search(s):
+        return False
+    fam, giv, has_comma = _fam_given(s)
+    if not has_comma or not giv or len(name_tokens(s)) > 3:
+        return False
+    return _looks_given(giv) and bool(re.search(r"[^\W\d_]{2,}", fam))
+
+
+def _name_has_affiliation_marker(name) -> bool:
+    n = str(name).strip() if name is not None else ""
+    if not n or _is_clean_personal_name(n) or _family_is_lone_marker(n):
+        return False
+    return bool(_INSTITUTION_MARKER_RE.search(n))
+
+
+def _is_definite_org(name) -> bool:
+    """Strong organization signal for the (b) org-tag branch: a legal-form suffix, a
+    ';' multi-part, 2+ marker hits, or an institution marker in org phrasing
+    (of/for/the). A lone trailing marker word is NOT enough (precision over recall,
+    so 'Given Surname' where the surname is a marker word is never flipped)."""
+    s = str(name).strip()
+    if _ORG_SUFFIX_RE.search(s) or ";" in s:
+        return True
+    if len(list(_INSTITUTION_MARKER_RE.finditer(s))) >= 2:
+        return True
+    return bool(_INSTITUTION_MARKER_RE.search(s)
+                and re.search(r"\b(?:of|for|the)\b", s, re.I))
+
+
+def split_person_affiliation(name):
+    """Split 'Person Name. Affiliation. ...' at the FIRST sentence-final '. ' whose
+    leading part looks like a person and whose trailing part carries an institution
+    marker. Returns (person, affiliation), else (None, None)."""
+    s = str(name).strip()
+    for m in _SENTENCE_BOUNDARY_RE.finditer(s):
+        left = s[:m.start()].strip(" .,")
+        right = s[m.end():].strip(" .,")
+        if not left or not right:
+            continue
+        if _looks_person_name(left) and _INSTITUTION_MARKER_RE.search(right):
+            return left, right
+    return None, None
+
+
+def _add_affiliation(creator: dict, aff_text: str) -> None:
+    aff_text = str(aff_text).strip()
+    if not aff_text:
+        return
+    affs = creator.get("affiliation")
+    if not isinstance(affs, list):
+        affs = []
+    key = aff_text.lower()
+    for a in affs:
+        an = a.get("name") if isinstance(a, dict) else a
+        if isinstance(an, str) and an.strip().lower() == key:
+            return
+    creator["affiliation"] = list(affs) + [{"name": aff_text}]
+
+
+def normalize_affiliation_in_name(record: dict) -> bool:
+    """Surgically fix creators whose NAME holds an affiliation/organization string:
+    (a) 'Person Name. Affiliation' -> keep the person, move the tail into
+    affiliation[]; (b) a DEFINITE organization -> set nameType='Organizational'.
+    High precision: real surnames are never split, and a person whose family is a
+    marker word is never tagged. Non-destructive (relocates/tags only, never drops).
+    Idempotent."""
+    cres = record.get("creators")
+    if not isinstance(cres, list):
+        return False
+    out, changed = [], False
+    for c in cres:
+        if not isinstance(c, dict):
+            out.append(c)
+            continue
+        n = str(c.get("name")).strip() if c.get("name") is not None else ""
+        if not _name_has_affiliation_marker(n):
+            out.append(c)
+            continue
+        person, aff = split_person_affiliation(n)
+        if person and aff:                              # (a) affiliation bled into name
+            cc = dict(c)
+            cc["name"] = person
+            _add_affiliation(cc, aff)
+            out.append(cc)
+            changed = True
+        elif (_is_definite_org(n) and not _family_is_lone_marker(n)
+              and c.get("nameType") != "Organizational"):   # (b) whole name is an org
+            cc = dict(c)
+            cc["nameType"] = "Organizational"
+            out.append(cc)
+            changed = True
+        else:
+            out.append(c)
+    if changed:
+        record["creators"] = out
+        return True
+    return False
+
+
+def _creator_in_deposit(name, deposit_token_sets) -> bool:
+    """True if a flagged creator plausibly corresponds to a raw deposit creator (so
+    it must be KEPT). Conservative: keeps on any decent token overlap."""
+    person, _ = split_person_affiliation(name)
+    toks = name_tokens(person if person else name)
+    if not toks:
+        return True                       # indeterminate -> never drop
+    for d in deposit_token_sets:
+        if d and (toks <= d or d <= toks or len(toks & d) >= 2):
+            return True
+    return False
+
+
+def drop_llm_affiliation_creators(record: dict, deposit_creator_names) -> bool:
+    """Backfill (needs raw DEPOSIT creator names): drop creators whose NAME is an
+    affiliation/org string the LLM ADDED — carries an institution marker yet matches
+    no raw deposit creator. Deposit-sourced org/affiliation creators are KEPT.
+    DESTRUCTIVE, so guarded: no-op without positive deposit evidence, conservative
+    token-overlap match, and NEVER empties creators. Run BEFORE
+    normalize_affiliation_in_name (on intact names)."""
+    if not deposit_creator_names:                 # never drop without deposit evidence
+        return False
+    cres = record.get("creators")
+    if not isinstance(cres, list):
+        return False
+    dep = [name_tokens(x) for x in deposit_creator_names if x]
+    if not any(dep):
+        return False
+    kept = [c for c in cres if not (
+        _name_has_affiliation_marker(str((c or {}).get("name") or "").strip())
+        and not _creator_in_deposit(str((c or {}).get("name") or "").strip(), dep))]
+    if kept == cres or not kept:                  # no change, or would empty -> refuse
+        return False
+    record["creators"] = kept
+    return True
 
 
 def reconcile_publication_year(record: dict) -> bool:

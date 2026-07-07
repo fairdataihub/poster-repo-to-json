@@ -379,6 +379,131 @@ def test_formats():
     print("OK formats: canonicalized, junk dropped, deduped")
 
 
+def test_normalize_name_identifiers():
+    from poster_to_json.field_normalize import normalize_name_identifiers
+    rec = {"creators": [
+        {"name": "A", "nameIdentifiers": [
+            {"nameIdentifier": "05kytsw45", "nameIdentifierScheme": "ROR"},
+            {"nameIdentifier": "0000 0001 0738 8966", "nameIdentifierScheme": "ISNI"},
+            {"nameIdentifier": "118540238", "nameIdentifierScheme": "GND"},
+            {"nameIdentifier": "0000-0001-2345-6789", "nameIdentifierScheme": "ORCID"},
+            {"nameIdentifier": "https://example.org/x", "nameIdentifierScheme": "URL"},
+        ]},
+        {"name": "B"},
+    ]}
+    assert normalize_name_identifiers(rec)
+    n = rec["creators"][0]["nameIdentifiers"]
+    assert n[0]["nameIdentifier"] == "https://ror.org/05kytsw45" and n[0]["schemeURI"] == "https://ror.org"
+    assert n[1]["nameIdentifier"] == "https://isni.org/isni/0000000107388966" and n[1]["schemeURI"] == "https://isni.org"
+    assert n[2]["nameIdentifier"] == "https://d-nb.info/gnd/118540238" and n[2]["schemeURI"] == "https://d-nb.info/gnd/"
+    assert "schemeURI" not in n[3] and n[3]["nameIdentifier"] == "0000-0001-2345-6789"  # ORCID left to align_schema
+    assert n[4] == {"nameIdentifier": "https://example.org/x", "nameIdentifierScheme": "URL"}
+    assert normalize_name_identifiers(rec) is False
+    print("OK normalize_name_identifiers: ROR/ISNI/GND URL-normalized, ORCID/URL left")
+
+
+def test_drop_invalid_orcids():
+    from poster_to_json.field_normalize import drop_invalid_orcids
+    rec = {"creators": [
+        {"name": "Doe, John", "nameIdentifiers": [
+            {"nameIdentifier": "https://orcid.org/0000-0001-2345-6789", "nameIdentifierScheme": "ORCID"},
+            {"nameIdentifier": "https://orcid.org/0000-0000-0000-0000", "nameIdentifierScheme": "ORCID"},
+        ]},
+        {"name": "Roe, Jane", "nameIdentifiers": [
+            {"nameIdentifier": "2105-0019-1463-2019", "nameIdentifierScheme": "ORCID"}]},
+        {"name": "Foo, Bar", "nameIdentifiers": [
+            {"nameIdentifier": "0034-7167-2019-0109", "nameIdentifierScheme": "ISNI"}]},
+    ]}
+    assert drop_invalid_orcids(rec)
+    assert rec["creators"][0]["nameIdentifiers"] == [
+        {"nameIdentifier": "https://orcid.org/0000-0001-2345-6789", "nameIdentifierScheme": "ORCID"}]
+    assert "nameIdentifiers" not in rec["creators"][1]
+    assert rec["creators"][2]["nameIdentifiers"][0]["nameIdentifierScheme"] == "ISNI"  # non-ORCID untouched
+    for bad in ("0000-0000-0000-0000", "2105-0019-1463-2019", "0001-0003-3648-8952",
+                "0034-7167-2019-0109", "0999-8992-8534-5985", "0999-8992-9453-6695"):
+        r = {"creators": [{"name": "X", "nameIdentifiers": [
+            {"nameIdentifier": bad, "nameIdentifierScheme": "ORCID"}]}]}
+        assert drop_invalid_orcids(r) and "nameIdentifiers" not in r["creators"][0]
+    r2 = {"creators": [{"name": "Y", "nameIdentifiers": [
+        {"nameIdentifier": "0000-0002-1694-233X", "nameIdentifierScheme": "ORCID"}]}]}
+    assert drop_invalid_orcids(r2) is False  # valid X-check ORCID kept
+    print("OK drop_invalid_orcids: checksum drop, all-zeros, X-check, scheme-scoped")
+
+
+def test_split_lumped_two_full_names_and_remnants():
+    from poster_to_json.field_normalize import split_lumped_name, normalize_lumped_creators
+    assert split_lumped_name("Enrique Vázquez-Semadeni and Robert M. Loughnane") == [
+        "Enrique Vázquez-Semadeni", "Robert M. Loughnane"]
+    assert split_lumped_name("Alexis L. Quintana & Nicholas J. Wright") == [
+        "Alexis L. Quintana", "Nicholas J. Wright"]
+    assert split_lumped_name("Boumaaza, J. and others") == ["Boumaaza, J."]
+    for keep in ("Marks & Spencer", "Procter & Gamble", "Bill & Melinda Gates Foundation",
+                 "Science and Technology Facilities Council", "John Smith", "Doe, John"):
+        assert split_lumped_name(keep) is None, keep
+    rec = {"creators": [{"name": "Anna C. Childs and Rebecca G. Martin"}, {"name": "Doe, John"}]}
+    assert normalize_lumped_creators(rec)
+    assert [c["name"] for c in rec["creators"]] == ["Anna C. Childs", "Rebecca G. Martin", "Doe, John"]
+    assert normalize_lumped_creators(rec) is False
+    print("OK split_lumped_name: two-full-name and/& split + remnant drop, precision")
+
+
+def test_drop_letterless_creator_fields():
+    from poster_to_json.field_normalize import drop_letterless_creator_fields
+    rec = {"creators": [
+        {"name": "Ng, Wei", "givenName": "Wei", "familyName": "Ng"},
+        {"name": "Wang, Li", "givenName": "丽", "familyName": "王"},   # CJK kept
+        {"name": "Oh, Sun", "givenName": "2", "familyName": "Oh"},
+        {"name": "Wu, Ann", "givenName": "Ann", "familyName": "-"},
+        {"name": "123"},
+    ]}
+    assert drop_letterless_creator_fields(rec)
+    assert [c["name"] for c in rec["creators"]] == ["Ng, Wei", "Wang, Li", "Oh, Sun", "Wu, Ann"]
+    assert rec["creators"][1] == {"name": "Wang, Li", "givenName": "丽", "familyName": "王"}  # native script kept
+    assert "givenName" not in rec["creators"][2] and "familyName" not in rec["creators"][3]
+    assert drop_letterless_creator_fields(rec) is False
+    assert drop_letterless_creator_fields({"creators": [{"name": "&"}, {"name": "2"}]}) is False  # never zero
+    print("OK drop_letterless: no-letter dropped, alpha + native-script names kept, never zero")
+
+
+def test_normalize_affiliation_in_name():
+    from poster_to_json.field_normalize import normalize_affiliation_in_name
+    rec = {"creators": [
+        {"name": "Velázquez Miranda, Santiago. Dept. of Medical Physics. Virgen del Rocio University Hospital"},
+        {"name": "Dept. of Electrical Machines and Drives. Technical University of Cluj-Napoca"},
+        {"name": "Torres-Company, Victor"}, {"name": "Companys, Berta"},
+        {"name": "Stephens, Ag"}, {"name": "The, S.L"},
+        {"name": "Hospital, Marc Antoni Pere"},  # marker surname, person -> untouched
+        {"name": "Smith, Jane"},
+    ]}
+    assert normalize_affiliation_in_name(rec)
+    cs = rec["creators"]
+    assert cs[0]["name"] == "Velázquez Miranda, Santiago"
+    assert cs[0]["affiliation"] == [{"name": "Dept. of Medical Physics. Virgen del Rocio University Hospital"}]
+    assert cs[1]["nameType"] == "Organizational"
+    for i in (2, 3, 4, 5, 6, 7):  # real people / traps untouched
+        assert cs[i].get("nameType") != "Organizational" and "affiliation" not in cs[i], cs[i]
+    assert normalize_affiliation_in_name(rec) is False
+    print("OK affiliation-in-name: (a) split, (b) org-tagged, persons w/ marker surnames kept")
+
+
+def test_drop_llm_affiliation_creators():
+    from poster_to_json.field_normalize import drop_llm_affiliation_creators
+    rec = {"creators": [
+        {"name": "Croatian Agency for Agriculture and Food"},      # deposit org -> keep
+        {"name": "Institute of Neuroscience, University of X"},     # LLM-added -> drop
+        {"name": "Smith, Jane"},
+    ]}
+    deposit = ["Croatian Agency for Agriculture and Food", "Smith, Jane"]
+    assert drop_llm_affiliation_creators(rec, deposit)
+    assert [c["name"] for c in rec["creators"]] == ["Croatian Agency for Agriculture and Food", "Smith, Jane"]
+    assert drop_llm_affiliation_creators(rec, deposit) is False
+    # GUARD: empty/None deposit evidence -> never drop
+    r2 = {"creators": [{"name": "Institute of Neuroscience, University of X"}, {"name": "Smith, Jane"}]}
+    assert drop_llm_affiliation_creators(r2, []) is False and len(r2["creators"]) == 2
+    assert drop_llm_affiliation_creators(r2, None) is False
+    print("OK drop-llm-affiliation: LLM-added orgs dropped, empty-deposit guard holds")
+
+
 if __name__ == "__main__":
     for k, v in sorted(globals().items()):
         if k.startswith("test_"):

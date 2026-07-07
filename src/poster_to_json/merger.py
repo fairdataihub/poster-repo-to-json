@@ -30,6 +30,8 @@ from .field_normalize import (
     creator_addable_to_union, creator_surnames, name_tokens, dedup_creators,
     normalize_lumped_creators, align_schema, ensure_presented_date,
     reconcile_publication_year, sanitize_conference_dates, strip_invalid_dates,
+    normalize_name_identifiers, drop_invalid_orcids, drop_letterless_creator_fields,
+    normalize_affiliation_in_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -172,9 +174,13 @@ class MetadataMerger:
         normalize_subjects(result)
         normalize_lumped_creators(result)
         normalize_creators(result)
+        normalize_affiliation_in_name(result)
+        drop_letterless_creator_fields(result)
         dedup_creators(result)
         normalize_formats(result)
+        drop_invalid_orcids(result)
         align_schema(result)
+        normalize_name_identifiers(result)
         reconcile_publication_year(result)
         sanitize_conference_dates(result)
         ensure_presented_date(result)
