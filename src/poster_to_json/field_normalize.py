@@ -1934,3 +1934,166 @@ def conform_to_schema(record: dict) -> bool:
         record.pop(k, None)
         changed = True
     return changed
+
+
+# ---- deposit-authoritative funding (Zenodo grants win) --------------------------
+_CROSSREF_FUNDER_ID_RE = re.compile(r"10\.13039/\S+")
+
+
+def _crossref_funder_identifier(doi):
+    """Normalize a Zenodo grant funder.doi (a Crossref Funder ID) to the corpus
+    'https://doi.org/10.13039/...' form; None if it is not a Crossref Funder ID."""
+    if not isinstance(doi, str):
+        return None
+    m = _CROSSREF_FUNDER_ID_RE.search(doi.strip())
+    return "https://doi.org/" + m.group(0) if m else None
+
+
+def build_funding_from_grants(grants):
+    """Map Zenodo deposit metadata.grants[] -> deposit-authoritative fundingReferences[]
+    (only the 7 schema-whitelisted keys, no null values, deduped). funderName falls back
+    to grant.title when funder.name is absent; awardTitle is dropped when it duplicates
+    funderName; a Crossref funder.doi becomes funderIdentifier + funderIdentifierType=
+    'Crossref Funder ID' (no schemeUri -- matches the delivered corpus)."""
+    out, seen = [], set()
+    for g in grants or []:
+        if not isinstance(g, dict):
+            continue
+        funder = g.get("funder") or {}
+        name = funder.get("name")
+        name = name.strip() if isinstance(name, str) else None
+        title = g.get("title")
+        title = title.strip() if isinstance(title, str) else None
+        if not (name and _has_letter(name)):
+            name = title if (title and _has_letter(title)) else None   # fallback: grant.title
+        if not name:
+            continue
+        entry = {"funderName": name}
+        fid = _crossref_funder_identifier(funder.get("doi"))
+        if fid:
+            entry["funderIdentifier"] = fid
+            entry["funderIdentifierType"] = "Crossref Funder ID"
+        code = g.get("code")
+        if isinstance(code, str) and code.strip() and any(ch.isalnum() for ch in code):
+            entry["awardNumber"] = code.strip()
+        if title and _has_letter(title) and title != name:             # not a dup of funderName
+            entry["awardTitle"] = title
+        url = g.get("url")
+        if isinstance(url, str) and url.strip():
+            entry["awardUri"] = url.strip()
+        key = tuple(sorted(entry.items()))
+        if key not in seen:
+            seen.add(key)
+            out.append(entry)
+    return out
+
+
+def funding_from_grants(record, grants):
+    """Make record['fundingReferences'] deposit-authoritative from Zenodo grants[]: build
+    from grants and REPLACE existing funding when >=1 valid entry results, carrying over an
+    already-resolved funderIdentifier from the existing funding (matched by funderName) so a
+    grant lacking funder.doi never drops a resolved id. No usable grants -> leave existing
+    untouched. Idempotent."""
+    if not isinstance(record, dict):
+        return False
+    built = build_funding_from_grants(grants)
+    if not built:
+        return False
+    old_by_name = {str(f["funderName"]).strip().lower(): f
+                   for f in (record.get("fundingReferences") or [])
+                   if isinstance(f, dict) and f.get("funderName") and f.get("funderIdentifier")}
+    for e in built:
+        if not e.get("funderIdentifier"):
+            m = old_by_name.get(str(e.get("funderName", "")).strip().lower())
+            if m:
+                e["funderIdentifier"] = m["funderIdentifier"]
+                if m.get("funderIdentifierType"):
+                    e["funderIdentifierType"] = m["funderIdentifierType"]
+                if m.get("schemeUri"):
+                    e["schemeUri"] = m["schemeUri"]
+    if record.get("fundingReferences") == built:
+        return False
+    record["fundingReferences"] = built
+    return True
+
+
+# ---- deposit-authoritative conference fill (Zenodo meeting wins) -----------------
+_MEETING_ISO_RE = re.compile(r"^\d{4}(-\d{2}(-\d{2})?)?$")
+_MEETING_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
+
+
+def _meeting_iso_or_none(s):
+    """Return s iff it is a clean ISO date (YYYY / YYYY-MM / YYYY-MM-DD), else None."""
+    s = str(s).strip() if s else ""
+    return s if _MEETING_ISO_RE.match(s) else None
+
+
+def _meeting_date_parts(dates_str):
+    """Parse a deposit meeting `dates` range into (startISO, endISO, year:int). Only
+    clean-ISO start/end survive; the year is read independently so a date-less-but-year-
+    bearing range still yields conferenceYear."""
+    if not isinstance(dates_str, str) or not dates_str.strip():
+        return None, None, None
+    src = dates_str.replace(" - ", "/") if " - " in dates_str else dates_str
+    parsed = normalize_date_value(src)
+    start = end = None
+    if parsed and "/" in parsed:
+        start, end = parsed.split("/", 1)
+    elif parsed:
+        start = parsed
+    start, end = _meeting_iso_or_none(start), _meeting_iso_or_none(end)
+    m = _MEETING_YEAR_RE.search(dates_str)
+    return start, end, (int(m.group(0)) if m else None)
+
+
+def fill_conference_from_meeting(record: dict, meeting: dict) -> bool:
+    """Deposit-authoritative, NO-CLOBBER fill of the flat conference object from a Zenodo
+    deposit `meeting` (title/place/url/acronym/dates). Populates only a conference field
+    that is missing/empty/placeholder; a real existing value is kept. conferenceName/Acronym
+    must pass the clean_conference_junk gate so junk is not re-introduced. Meeting `dates`
+    become ISO conferenceStartDate/EndDate + int conferenceYear. Never emits the schema-None
+    fields. Record-only, idempotent. (Distinct from schema_converter.conference_from_meeting,
+    which is a (meeting)->dict builder.)"""
+    if not isinstance(meeting, dict) or not meeting:
+        return False
+    conf = record.get("conference")
+    if conf is not None and not isinstance(conf, dict):
+        return False
+    existing = conf if isinstance(conf, dict) else {}
+
+    def _empty(field):
+        v = existing.get(field)
+        return v is None or (isinstance(v, str) and (not v.strip() or _is_placeholder(v)))
+
+    updates = {}
+    title = meeting.get("title")
+    if _empty("conferenceName") and isinstance(title, str):
+        t = title.strip()
+        if _has_letter(t) and sum(1 for ch in t if ch.isalnum()) > 2:
+            updates["conferenceName"] = t
+    acr = meeting.get("acronym")
+    if _empty("conferenceAcronym") and isinstance(acr, str):
+        a = acr.strip()
+        if _has_letter(a) and sum(1 for ch in a if ch.isalnum()) > 1 and len(a) <= 30:
+            updates["conferenceAcronym"] = a
+    place = meeting.get("place")
+    if _empty("conferenceLocation") and isinstance(place, str):
+        p = place.strip()
+        if p and _has_letter(p) and not _is_placeholder(p):
+            updates["conferenceLocation"] = p
+    url = meeting.get("url")
+    if _empty("conferenceUri") and isinstance(url, str):
+        u = url.strip()
+        if u and not _is_placeholder(u):
+            updates["conferenceUri"] = u
+    start, end, year = _meeting_date_parts(meeting.get("dates"))
+    if start and _empty("conferenceStartDate"):
+        updates["conferenceStartDate"] = start
+    if end and _empty("conferenceEndDate"):
+        updates["conferenceEndDate"] = end
+    if year and _empty("conferenceYear"):
+        updates["conferenceYear"] = year
+    if not updates:
+        return False
+    record["conference"] = {**existing, **updates}
+    return True

@@ -765,6 +765,58 @@ def test_conform_to_schema():
     print("OK conform_to_schema: nested whitelist-strip + ORCID rescue + junk top-level drop")
 
 
+def test_funding_from_grants():
+    from poster_to_json.field_normalize import funding_from_grants, build_funding_from_grants
+    fct = {"name": "Fundacao para a Ciencia e Tecnologia", "doi": "10.13039/501100001871"}
+    grants = [{"code": "PTDC/ABC/123", "funder": fct, "title": "A great project", "url": "https://ex.org/g1"}]
+    rec = {"fundingReferences": [{"funderName": "Hallucinated Foundation"}]}   # LLM contamination
+    assert funding_from_grants(rec, grants)
+    assert rec["fundingReferences"] == [{
+        "funderName": "Fundacao para a Ciencia e Tecnologia",
+        "funderIdentifier": "https://doi.org/10.13039/501100001871",
+        "funderIdentifierType": "Crossref Funder ID",              # NO schemeUri (corpus convention)
+        "awardNumber": "PTDC/ABC/123", "awardTitle": "A great project",
+        "awardUri": "https://ex.org/g1"}], rec["fundingReferences"]
+    assert funding_from_grants(rec, grants) is False               # idempotent
+    # carry over a resolved funderIdentifier when the grant lacks funder.doi
+    rec2 = {"fundingReferences": [{"funderName": "NSF",
+            "funderIdentifier": "https://doi.org/10.13039/100000001",
+            "funderIdentifierType": "Crossref Funder ID"}]}
+    assert funding_from_grants(rec2, [{"funder": {"name": "NSF"}, "code": "1"}])
+    assert rec2["fundingReferences"][0]["funderIdentifier"] == "https://doi.org/10.13039/100000001"  # carried
+    # funderName falls back to grant.title; awardTitle dropped when it duplicates funderName
+    assert build_funding_from_grants([{"title": "Big Grant", "funder": {}}]) == [{"funderName": "Big Grant"}]
+    # no grants -> existing untouched (no-clobber)
+    keep = {"fundingReferences": [{"funderName": "LLM only"}]}
+    assert funding_from_grants(keep, []) is False and keep["fundingReferences"] == [{"funderName": "LLM only"}]
+    print("OK funding_from_grants: grants win, carry-over id, no schemeUri, title fallback, no-clobber")
+
+
+def test_fill_conference_from_meeting():
+    from poster_to_json.field_normalize import fill_conference_from_meeting
+    # the 937 root-cause bucket: title+place, no parseable date -> name/loc/uri/acronym fill
+    r = {}
+    m = {"title": "Intl Conf on Poster Science", "place": "Lisbon, Portugal",
+         "url": "https://conf.ex/2019", "acronym": "ICPS"}
+    assert fill_conference_from_meeting(r, m)
+    assert r["conference"] == {"conferenceName": "Intl Conf on Poster Science", "conferenceAcronym": "ICPS",
+                               "conferenceLocation": "Lisbon, Portugal", "conferenceUri": "https://conf.ex/2019"}
+    assert fill_conference_from_meeting(r, m) is False             # idempotent
+    r2 = {}
+    fill_conference_from_meeting(r2, {"title": "X Symposium", "dates": "2019-06-12 - 2019-06-14"})
+    c = r2["conference"]
+    assert (c["conferenceStartDate"], c["conferenceEndDate"], c["conferenceYear"]) == ("2019-06-12", "2019-06-14", 2019)
+    # no-clobber: keep a real existing value, fill the gap
+    r3 = {"conference": {"conferenceName": "Real Name"}}
+    fill_conference_from_meeting(r3, {"title": "Meeting Title", "place": "Berlin"})
+    assert r3["conference"]["conferenceName"] == "Real Name" and r3["conference"]["conferenceLocation"] == "Berlin"
+    # junk title rejected (clean_conference_junk gate); no schema-None fields
+    r4 = {}
+    fill_conference_from_meeting(r4, {"title": "--", "place": "Rome"})
+    assert "conferenceName" not in r4["conference"] and r4["conference"]["conferenceLocation"] == "Rome"
+    print("OK fill_conference_from_meeting: fills gaps from meeting, no-clobber, junk rejected")
+
+
 if __name__ == "__main__":
     for k, v in sorted(globals().items()):
         if k.startswith("test_"):
