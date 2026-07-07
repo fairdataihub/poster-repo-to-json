@@ -687,15 +687,17 @@ def test_drop_junk_sections():
         {"sectionTitle": "Introduction", "sectionContent": "Real content here about the study."},
         {"sectionTitle": "0", "sectionContent": "This section has real body text worth keeping."},  # strip title
         {"sectionTitle": "1", "sectionContent": "*"},                         # both junk -> drop
-        {"sectionTitle": "X" * 250, "sectionContent": ""}]}}                  # overlong title -> demote
+        {"sectionTitle": "X" * 250, "sectionContent": ""},                    # overlong, no body -> demote
+        {"sectionTitle": "Y" * 250, "sectionContent": "real body"}]}}         # overlong + body -> merge (no loss)
     assert drop_junk_sections(rec)
     secs = rec["content"]["sections"]
-    assert len(secs) == 3
+    assert len(secs) == 4
     assert secs[0]["sectionTitle"] == "Introduction"
     assert "sectionTitle" not in secs[1] and secs[1]["sectionContent"].startswith("This section")
     assert "sectionTitle" not in secs[2] and secs[2]["sectionContent"] == "X" * 250   # demoted
+    assert "sectionTitle" not in secs[3] and secs[3]["sectionContent"] == "Y" * 250 + "\n\nreal body"  # merged, nothing lost
     assert drop_junk_sections(rec) is False                                   # idempotent
-    print("OK drop_junk_sections: fully-junk dropped, junk title stripped, overlong title demoted")
+    print("OK drop_junk_sections: fully-junk dropped, junk title stripped, overlong title demoted (no text loss)")
 
 
 def test_drop_junk_captions():

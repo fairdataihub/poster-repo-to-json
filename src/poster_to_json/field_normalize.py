@@ -1810,11 +1810,12 @@ def drop_junk_sections(record: dict) -> bool:
             s = {k: v for k, v in s.items() if k != "sectionTitle"}
             changed = True
         elif title_overlong:
-            if body_ok:
-                s = {k: v for k, v in s.items() if k != "sectionTitle"}
-            else:
-                s = {**s, "sectionContent": title}
-                s.pop("sectionTitle", None)
+            # an over-long "title" is really content mis-slotted: DEMOTE it into
+            # sectionContent (never drop -- preserve every character of real text).
+            merged = title if not (isinstance(body, str) and body.strip()) \
+                else title.rstrip() + "\n\n" + body
+            s = {**s, "sectionContent": merged}
+            s.pop("sectionTitle", None)
             changed = True
         kept.append(s)
     if not changed:
