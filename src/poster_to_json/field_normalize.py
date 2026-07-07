@@ -1999,12 +1999,17 @@ def funding_from_grants(record, grants):
     built = build_funding_from_grants(grants)
     if not built:
         return False
-    old_by_name = {str(f["funderName"]).strip().lower(): f
-                   for f in (record.get("fundingReferences") or [])
-                   if isinstance(f, dict) and f.get("funderName") and f.get("funderIdentifier")}
+    resolved = [f for f in (record.get("fundingReferences") or [])
+                if isinstance(f, dict) and f.get("funderIdentifier")]
+    old_by_name = {str(f["funderName"]).strip().lower(): f for f in resolved if f.get("funderName")}
+    old_by_award = {str(f["awardNumber"]).strip().lower(): f for f in resolved if f.get("awardNumber")}
     for e in built:
         if not e.get("funderIdentifier"):
-            m = old_by_name.get(str(e.get("funderName", "")).strip().lower())
+            # carry a resolved id across a funder-name surface variant (NSF <-> National
+            # Science Foundation): match by name, else by awardNumber, else the sole resolved entry
+            m = (old_by_name.get(str(e.get("funderName", "")).strip().lower())
+                 or old_by_award.get(str(e.get("awardNumber", "")).strip().lower())
+                 or (resolved[0] if len(resolved) == 1 else None))
             if m:
                 e["funderIdentifier"] = m["funderIdentifier"]
                 if m.get("funderIdentifierType"):
@@ -2034,7 +2039,15 @@ def _meeting_date_parts(dates_str):
     bearing range still yields conferenceYear."""
     if not isinstance(dates_str, str) or not dates_str.strip():
         return None, None, None
-    src = dates_str.replace(" - ", "/") if " - " in dates_str else dates_str
+    src = dates_str
+    if " - " in dates_str:
+        left, _, right = dates_str.partition(" - ")
+        # Only split into two dates when BOTH halves carry their own year (e.g. an ISO
+        # range "2019-06-12 - 2019-06-14"). For a single-year day range like
+        # "5 - 7 May 2021" the split would strand the leading day ("5" -> the LAST day
+        # becomes the start); normalize_date_value parses the un-split string correctly.
+        if _MEETING_YEAR_RE.search(left) and _MEETING_YEAR_RE.search(right):
+            src = left + "/" + right
     parsed = normalize_date_value(src)
     start = end = None
     if parsed and "/" in parsed:
@@ -2042,6 +2055,8 @@ def _meeting_date_parts(dates_str):
     elif parsed:
         start = parsed
     start, end = _meeting_iso_or_none(start), _meeting_iso_or_none(end)
+    if start and end and end < start:      # nonsensical (cross-month misparse) -> drop end
+        end = None
     m = _MEETING_YEAR_RE.search(dates_str)
     return start, end, (int(m.group(0)) if m else None)
 
@@ -2069,12 +2084,13 @@ def fill_conference_from_meeting(record: dict, meeting: dict) -> bool:
     title = meeting.get("title")
     if _empty("conferenceName") and isinstance(title, str):
         t = title.strip()
-        if _has_letter(t) and sum(1 for ch in t if ch.isalnum()) > 2:
+        if _has_letter(t) and sum(1 for ch in t if ch.isalnum()) > 2 and not _is_placeholder(t):
             updates["conferenceName"] = t
     acr = meeting.get("acronym")
     if _empty("conferenceAcronym") and isinstance(acr, str):
         a = acr.strip()
-        if _has_letter(a) and sum(1 for ch in a if ch.isalnum()) > 1 and len(a) <= 30:
+        if (_has_letter(a) and sum(1 for ch in a if ch.isalnum()) > 1 and len(a) <= 30
+                and not _is_placeholder(a)):
             updates["conferenceAcronym"] = a
     place = meeting.get("place")
     if _empty("conferenceLocation") and isinstance(place, str):
@@ -2095,5 +2111,10 @@ def fill_conference_from_meeting(record: dict, meeting: dict) -> bool:
         updates["conferenceYear"] = year
     if not updates:
         return False
-    record["conference"] = {**existing, **updates}
+    merged = {**existing, **updates}
+    # poster_schema.json requires conferenceName; never emit a nameless conference object
+    # (a meeting with only place/dates/url and no usable title yields nothing to anchor).
+    if not merged.get("conferenceName"):
+        return False
+    record["conference"] = merged
     return True

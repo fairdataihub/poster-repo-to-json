@@ -25,9 +25,55 @@ _SRC = Path(__file__).resolve().parents[2] / "src"
 if _SRC.exists():
     sys.path.insert(0, str(_SRC))
 from poster_to_json.field_normalize import (  # noqa: E402
-    fill_conference_from_meeting, clean_conference_junk)
+    fill_conference_from_meeting, clean_conference_junk,
+    _meeting_date_parts, _meeting_iso_or_none)
+from poster_to_json.date_normalize import normalize_date_value  # noqa: E402
 
 _MAX_YEAR = 2026
+
+
+def _buggy_meeting_date_parts(dates_str):
+    """The v0.35.0 PRE-FIX parse (unconditional ' - ' -> '/'), used only to detect a
+    conferenceStartDate the buggy fill wrote so this pass can correct exactly those."""
+    if not isinstance(dates_str, str) or not dates_str.strip():
+        return None, None
+    src = dates_str.replace(" - ", "/") if " - " in dates_str else dates_str
+    parsed = normalize_date_value(src)
+    start = end = None
+    if parsed and "/" in parsed:
+        start, end = parsed.split("/", 1)
+    elif parsed:
+        start = parsed
+    return _meeting_iso_or_none(start), _meeting_iso_or_none(end)
+
+
+def _correct_buggy_dates(record, meeting):
+    """Re-derive the meeting dates with the FIXED parser and correct a conferenceStartDate
+    that the earlier buggy parser wrote (stranded leading day -> last day as start).
+    Surgical: only touches a date equal to the buggy parse, never a real LLM date."""
+    conf = record.get("conference")
+    if not isinstance(conf, dict):
+        return False
+    ds = meeting.get("dates")
+    bstart, bend = _buggy_meeting_date_parts(ds)
+    fstart, fend, _ = _meeting_date_parts(ds)
+    if bstart and conf.get("conferenceStartDate") == bstart and fstart and fstart != bstart:
+        conf["conferenceStartDate"] = fstart
+        if fend:
+            conf["conferenceEndDate"] = fend
+        elif conf.get("conferenceEndDate") == bend:
+            conf.pop("conferenceEndDate", None)
+        return True
+    return False
+
+
+def _drop_nameless_conference(record):
+    """Schema requires conferenceName; drop a conference object that has none."""
+    conf = record.get("conference")
+    if isinstance(conf, dict) and not conf.get("conferenceName"):
+        record.pop("conference", None)
+        return True
+    return False
 
 
 def _year_fallback(record):
@@ -72,15 +118,17 @@ def run(merged_dir, metadata_dir, dry_run, limit, show):
             stats["errors"] += 1
             continue
         meeting = (raw.get("metadata") or {}).get("meeting") or {}
-        had = (d.get("conference") or {}).get("conferenceName") if isinstance(d.get("conference"), dict) else None
-        changed = fill_conference_from_meeting(d, meeting)
-        changed = _year_fallback(d) or changed
-        if changed:
-            clean_conference_junk(d)                    # never leave a junk name behind
+        c_fill = fill_conference_from_meeting(d, meeting)     # fill gaps (fixed parser)
+        c_date = _correct_buggy_dates(d, meeting)             # correct buggy-parsed start dates
+        c_junk = clean_conference_junk(d)                     # strip junk name/acronym
+        c_name = _drop_nameless_conference(d)                 # drop a now-nameless conference
+        c_year = _year_fallback(d)                            # add year if named but yearless
+        if c_fill or c_date or c_junk or c_name or c_year:
             stats["changed"] += 1
-            if show and len(samples) < show and not had:
-                nm = (d.get("conference") or {}).get("conferenceName")
-                samples.append(f"{rid}: name={str(nm)[:45]!r}")
+            if show and len(samples) < show:
+                tag = ("date" if c_date else "dropped-nameless" if c_name
+                       else "filled" if c_fill else "cleaned")
+                samples.append(f"{rid}: {tag}")
             if not dry_run:
                 try:
                     f.write_text(json.dumps(d, indent=2, ensure_ascii=False), encoding="utf-8")

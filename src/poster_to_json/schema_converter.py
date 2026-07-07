@@ -104,16 +104,23 @@ def conference_from_meeting(meeting: dict) -> Optional[dict]:
         # Structured "YYYY-MM-DD - YYYY-MM-DD" first, else free-text; both routed
         # through normalize_date_value and kept ONLY if clean ISO (never leak
         # unparsed free-text like "19 november 2024" into a date field).
+        src = dates_str
         if " - " in dates_str:
-            parsed = normalize_date_value(dates_str.replace(" - ", "/"))
-        else:
-            parsed = normalize_date_value(dates_str)
+            left, _, right = dates_str.partition(" - ")
+            # only split when BOTH halves carry a year (e.g. an ISO range); a single-year
+            # day range like "5 - 7 May 2021" is parsed un-split (splitting strands the
+            # leading day and makes the last day the start).
+            if re.search(r"(?:19|20)\d{2}", left) and re.search(r"(?:19|20)\d{2}", right):
+                src = left + "/" + right
+        parsed = normalize_date_value(src)
         s = e = None
         if parsed and "/" in parsed:
             s, e = parsed.split("/", 1)
         elif parsed:
             s = parsed
         s, e = _iso_date_or_none(s), _iso_date_or_none(e)
+        if s and e and e < s:      # nonsensical (cross-month misparse) -> drop end
+            e = None
         if s:
             conference["conferenceStartDate"] = s
         if e:

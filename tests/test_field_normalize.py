@@ -784,6 +784,11 @@ def test_funding_from_grants():
             "funderIdentifierType": "Crossref Funder ID"}]}
     assert funding_from_grants(rec2, [{"funder": {"name": "NSF"}, "code": "1"}])
     assert rec2["fundingReferences"][0]["funderIdentifier"] == "https://doi.org/10.13039/100000001"  # carried
+    # carry over across a funderName surface variant, matched by awardNumber (adversarial-pass fix)
+    rec3 = {"fundingReferences": [{"funderName": "National Science Foundation",
+            "funderIdentifier": "https://doi.org/10.13039/100000001", "awardNumber": "1234567"}]}
+    assert funding_from_grants(rec3, [{"funder": {"name": "NSF"}, "code": "1234567"}])
+    assert rec3["fundingReferences"][0]["funderIdentifier"] == "https://doi.org/10.13039/100000001"
     # funderName falls back to grant.title; awardTitle dropped when it duplicates funderName
     assert build_funding_from_grants([{"title": "Big Grant", "funder": {}}]) == [{"funderName": "Big Grant"}]
     # no grants -> existing untouched (no-clobber)
@@ -806,15 +811,21 @@ def test_fill_conference_from_meeting():
     fill_conference_from_meeting(r2, {"title": "X Symposium", "dates": "2019-06-12 - 2019-06-14"})
     c = r2["conference"]
     assert (c["conferenceStartDate"], c["conferenceEndDate"], c["conferenceYear"]) == ("2019-06-12", "2019-06-14", 2019)
+    # single-year day range must NOT strand the leading day (adversarial-pass fix)
+    r5 = {}
+    fill_conference_from_meeting(r5, {"title": "Y Conf", "dates": "5 - 7 May 2021"})
+    c5 = r5["conference"]
+    assert (c5["conferenceStartDate"], c5["conferenceEndDate"]) == ("2021-05-05", "2021-05-07"), c5
     # no-clobber: keep a real existing value, fill the gap
     r3 = {"conference": {"conferenceName": "Real Name"}}
     fill_conference_from_meeting(r3, {"title": "Meeting Title", "place": "Berlin"})
     assert r3["conference"]["conferenceName"] == "Real Name" and r3["conference"]["conferenceLocation"] == "Berlin"
-    # junk title rejected (clean_conference_junk gate); no schema-None fields
+    # nameless meeting (place/dates, junk/placeholder title) -> NO conference (schema needs a name)
     r4 = {}
-    fill_conference_from_meeting(r4, {"title": "--", "place": "Rome"})
-    assert "conferenceName" not in r4["conference"] and r4["conference"]["conferenceLocation"] == "Rome"
-    print("OK fill_conference_from_meeting: fills gaps from meeting, no-clobber, junk rejected")
+    assert fill_conference_from_meeting(r4, {"title": "--", "place": "Rome", "dates": "2020-01-01/2020-01-02"}) is False
+    assert "conference" not in r4
+    assert fill_conference_from_meeting({}, {"title": "Not specified", "place": "Paris"}) is False   # placeholder title
+    print("OK fill_conference_from_meeting: date range fixed, no nameless object, placeholder rejected")
 
 
 if __name__ == "__main__":
