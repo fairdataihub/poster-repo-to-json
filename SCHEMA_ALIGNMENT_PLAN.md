@@ -276,6 +276,27 @@ adversarially verified):
   abstracts (added `import json`). 747 records.
 Delivered, idempotent, 0 errors.
 
+## QC portion 4: funding / conference / content / captions (v0.33.0, 2026-07-07)
+
+Fourth extremes scan (fundingReferences/conference/content/imageCaptions/tableCaptions).
+KEY correction: award "junk" was a false alarm -- grant numbers are legitimately numeric
+(5,210 valid, 2 truly junk); and long funder "sentences" include real official agency
+names (e.g. "Agencia Nacional de Promocion..."). So the real signal is acknowledgement
+PHRASING, not length. Anomalies fixed (built inline, precision-first + dry-run-reviewed):
+- **drop_junk_funding** -- drop a fundingReferences entry whose funderName is no-letter or
+  an acknowledgement-sentence misparse ("This study was supported by..."); KEEP real agency
+  names and any entry with a funderIdentifier; clear a no-alnum awardNumber (numeric grants
+  kept). 202 records.
+- **clean_conference_junk** -- clear a no-letter / <=2-char conferenceName and a no-letter /
+  single-char / >30-char conferenceAcronym; conference dates untouched. 50 records.
+- **drop_junk_sections** -- drop fully-junk content sections; strip no-letter titles; DEMOTE
+  an over-long (>200ch) title into sectionContent (never drop -- dry-run caught the first cut
+  dropping real mis-slotted content; fixed to preserve every char). ~858 records.
+- **drop_junk_captions** -- drop no-letter / <=2-char image+table captions; keep real ones
+  (even long). ~448 records.
+User decision: clean obvious junk in the LLM content (sections/captions) precision-first,
+keep all real content. Delivered, idempotent, 0 errors, junk verified 0-remaining.
+
 ## DataCite re-fetch mapping (`api.datacite.org/dois/{doi}` → `data.attributes`)
 
 | poster.json | DataCite attributes path | Merge rule |
