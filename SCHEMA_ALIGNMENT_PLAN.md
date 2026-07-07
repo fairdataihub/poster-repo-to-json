@@ -206,9 +206,12 @@ API `upload`/`release/zenodo`). It reads our `*_complete.json`, `mapToDbFields()
 - **Blocked-poster policy refined** — per decision, blocked (ND/ARR) posters KEEP the deposit
   Abstract (open Zenodo CC0 metadata) and drop only content/captions/researchField/domain +
   the LLM `Other` description. `license_policy.strip_extracted_content` updated.
-- **Open item — `unknown` licenses**: `classify_license` docstring says enforcement treats
-  `unknown` as `blocked`, but `enforce_license_policy.py` only acts on `blocked` (93 unknown-
-  license posters are neither flagged nor stripped). Decide whether to treat unknown as blocked.
+- **`unknown` licenses (RESOLVED v0.34.0)**: per user decision, `enforce_license_policy.py`
+  now treats `unknown` the same as `blocked` (matching the docstring) — 93 unknown-license
+  posters (82 pre-2025 + 11 2025) content-stripped, Abstract kept, `_license_blocked` set.
+- **`$schema` sync (RESOLVED v0.34.0)**: `scripts/sync_schema.py` copies the authoritative
+  `poster-json-schema/poster_schema.json` into the bundle and derives `_SCHEMA_URL` from its
+  `$id`. The bundled schema was stale (51KB vs 47KB); re-synced. Run with `--check` in CI.
 
 ## Creator-field cleanup (v0.30.0, delivered 2026-07-06)
 
@@ -311,6 +314,22 @@ names from deposit meeting.title OR the extraction and lost captions from the ex
 idempotent, redelivered; fixed normalizers leave the restored data stable (0 changes).
 LESSON: use Unicode-aware alnum/letter tests everywhere -- never ASCII [A-Za-z0-9] or raw
 codepoint-length cutoffs -- on this multilingual corpus.
+
+## Final schema-conformance leg (v0.34.0, 2026-07-07)
+
+A full field census (every top-level + nested key with frequency) found the schema fields
+clean but LLM-leaked extras present: ~24 non-schema top-level keys (references x3,564,
+acknowledgements x799, contact x62, keyFindings x25, + ~20 junk singletons incl. prose-as-
+keys) and, more seriously, nested schema VIOLATIONS -- poster_schema.json marks every nested
+array `additionalProperties:False`, but creators carried loose `orcid`/`ORCID`/`degree`/
+`email`/`role` keys and a few records had a whole poster nested into one creator/subject.
+- **conform_to_schema** (runs last in the chain): rescues loose creator ORCID keys into
+  `nameIdentifiers`, then whitelist-strips every nested-array item to the schema keys, and
+  drops junk non-schema top-level keys -- keeping DataCite fields, our extras (`$schema`/
+  `domain`/`_license_blocked`), and the user-approved structured extras (references/
+  acknowledgements/contact/keyFindings). 64 records; verified 0 violations remaining.
+User decisions this leg: keep structured top-level extras (drop only junk singletons);
+treat `unknown` licenses as blocked. Delivered, idempotent, 0 errors.
 
 ## DataCite re-fetch mapping (`api.datacite.org/dois/{doi}` → `data.attributes`)
 
