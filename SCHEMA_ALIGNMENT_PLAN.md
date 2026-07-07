@@ -210,6 +210,31 @@ API `upload`/`release/zenodo`). It reads our `*_complete.json`, `mapToDbFields()
   `unknown` as `blocked`, but `enforce_license_policy.py` only acts on `blocked` (93 unknown-
   license posters are neither flagged nor stripped). Decide whether to treat unknown as blocked.
 
+## Creator-field cleanup (v0.30.0, delivered 2026-07-06)
+
+Found via an extremes scan (shortest/longest per field) of the 9 identifier+creator
+fields; designed + adversarially verified by a multi-agent workflow (the skeptic pass
+caught a destructive-drop defect and an ASCII-only letter check that would have deleted
+CJK names). Five idempotent, precision-first normalizers:
+- **normalize_name_identifiers** — URL-normalize ROR/ISNI/GND `nameIdentifier` + add
+  canonical `schemeURI` (mirrors the ORCID handling). ~165 records.
+- **drop_invalid_orcids** — drop ORCID `nameIdentifier`s failing the ISO-7064 MOD-11-2
+  checksum (6 corpus-wide: `2105-…`, `0999-…`, all-zeros).
+- **split_lumped_name** (enhanced) — split `X and Y`/`X & Y` two-full-name lumps; drop
+  `and others`/`et al` remnants. ~36 records.
+- **normalize_affiliation_in_name + drop_llm_affiliation_creators** — split `Name.
+  Affiliation` / `Surname, Affiliation` into `affiliation[]` (person kept); tag definite
+  orgs Organizational; **drop LLM-added org creators absent from the deposit** (33
+  pre-2025; guarded: never without deposit evidence, never a person-extractable name,
+  never a `;` person-list, never empties creators). Deposit-aware backfill
+  `backfill_drop_llm_affiliation.py`.
+- **drop_letterless_creator_fields** — drop no-letter junk (`2`, `-`); Unicode-aware, so
+  CJK/short-alpha names (`Ng`, `丽`) are kept.
+
+Junk-by-field truth: `name` field was clean (0 junk); the earlier "9,041 junk" was 9,025
+legitimate single-letter initials + only 16 no-letter values. All delivered, idempotent,
+0 residual.
+
 ## DataCite re-fetch mapping (`api.datacite.org/dois/{doi}` → `data.attributes`)
 
 | poster.json | DataCite attributes path | Merge rule |
