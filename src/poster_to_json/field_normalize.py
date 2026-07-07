@@ -1094,7 +1094,7 @@ _INSTITUTION_MARKER_RE = re.compile(
           | Museum | Academy | Ministry | Observ\w* | Faculty | Consiglio
           | Commission | College | Foundation ) \b
     | \b(?: Centre | Center | Agency ) \s+ for \b
-    | ;
+    | ;\s                                                  # real separator (not a "Jus;n" typo)
     | \b(?: GmbH | Ltd | Inc | SAS ) \b
     """,
 )
@@ -1247,6 +1247,20 @@ def _creator_in_deposit(name, deposit_token_sets) -> bool:
     return False
 
 
+def _is_semicolon_person_list(name) -> bool:
+    """A ';'-separated list whose parts are mostly NOT organizations (a lumped author
+    list like 'Bidari R; Azlina D; Rafidah' that the splitter missed) — never dropped
+    as an org."""
+    s = str(name)
+    if "; " not in s:
+        return False
+    parts = [p.strip() for p in s.split(";") if p.strip()]
+    if len(parts) < 2:
+        return False
+    orgish = sum(1 for p in parts if _INSTITUTION_MARKER_RE.search(p))
+    return orgish < len(parts)
+
+
 def drop_llm_affiliation_creators(record: dict, deposit_creator_names) -> bool:
     """Backfill (needs raw DEPOSIT creator names): drop creators whose NAME is an
     affiliation/org string the LLM ADDED — carries an institution marker yet matches
@@ -1270,6 +1284,7 @@ def drop_llm_affiliation_creators(record: dict, deposit_creator_names) -> bool:
         # institution marker and matches no deposit creator.
         drop = (_name_has_affiliation_marker(nm)
                 and split_person_affiliation(nm) == (None, None)
+                and not _is_semicolon_person_list(nm)
                 and not _creator_in_deposit(nm, dep))
         if not drop:
             kept.append(c)
