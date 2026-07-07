@@ -255,6 +255,27 @@ Applied: ~1,137 affiliation records, ~323 subject records, 35 title fallbacks; 0
 idempotent. Schema note: still v0.2 but it changed content-only today (publisher now
 nullable) -- reinforces syncing the schema file over hardcoding.
 
+## QC portion 3: dates / version / relatedIdentifiers / descriptions (v0.32.0, 2026-07-06)
+
+Third extremes scan (dates/language/types/relatedIdentifiers/version/rights/descriptions).
+Clean: language (valid 2-letter), all relatedIdentifier enums (type/relationType/
+resourceTypeGeneral), and descriptions are already Abstract-first (31,231/31,254 -- the
+"promote deposit description to MAIN" SHOULD is met; descriptions[0] = platform main desc).
+types is not read (platform hardcodes "Poster"). Anomalies fixed (workflow-designed +
+adversarially verified):
+- **collapse_multidate_ranges** -- collapse a malformed dates[].date with 3+ '/'-joined
+  ISO dates to min/max (or a single date after de-dup). 23 records.
+- **normalize_version** -- drop a version that is a URL / >25ch sentence / spam
+  (trademark, phone-run, marketing); keep dotted+short versions (phone-pattern excludes
+  '.'). 25 records.
+- **drop_junk_related_identifiers** -- drop placeholder/<=3-char/encoded-junk entries;
+  `%2C` or `%20`-in-a-non-URL is junk, but a single `%20` in an http URL is kept (refined
+  from the verifier's over-broad rule: 44 -> 19 dropped, real reference URLs preserved).
+- **drop_junk_descriptions** -- drop letterless / <=2-char / raw-JSON-blob descriptions
+  (the LLM dumped `{"references": [...]}` as prose); keep real prose incl. CJK + long
+  abstracts (added `import json`). 747 records.
+Delivered, idempotent, 0 errors.
+
 ## DataCite re-fetch mapping (`api.datacite.org/dois/{doi}` → `data.attributes`)
 
 | poster.json | DataCite attributes path | Merge rule |
