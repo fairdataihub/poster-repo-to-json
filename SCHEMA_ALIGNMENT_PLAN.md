@@ -235,6 +235,26 @@ Junk-by-field truth: `name` field was clean (0 junk); the earlier "9,041 junk" w
 legitimate single-letter initials + only 16 no-letter values. All delivered, idempotent,
 0 residual.
 
+## QC portion 2: affiliation / subjects / titles (v0.31.0, delivered 2026-07-06)
+
+Second extremes scan (affiliation/titles/publisher/publicationYear/subjects). Clean:
+affiliationIdentifier (all ROR URLs), scheme/schemeURI, publisher (Zenodo/Figshare;
+note the ingestion HARDCODES publisher="Zenodo"), publicationYear (min 1986/max 2026,
+0 unrealistic). Anomalies fixed (designed + adversarially verified by workflow):
+- **normalize_affiliation_names** — NFKC each affiliation name; drop no-letter junk
+  (`" "`, `"&"`); split `;`-lumped multi-institution names into separate entries
+  (never comma/`and`; never a ROR-bearing entry so the id is not mis-attached); dedup.
+- **normalize_subjects/split_subject** (enhanced) — drop letterless junk (`"."`,`"1"`);
+  split on a leading "Keywords and subjects" header, on 2+ spaces, and on repeated
+  parenthetical acronyms; keeps single phrases and a `Subject-Verb` compound whole.
+- **replace_bad_llm_title + backfill_title_fallback.py** — fall back to the deposit
+  title when the LLM title is a fragment/acronym (`LOST`,`SIP`,`null`) or a >250-char
+  paragraph. The verifier's "period+12-word" rule was dropped (over-flagged legit long
+  titles); rejects placeholder/filename deposit titles.
+Applied: ~1,137 affiliation records, ~323 subject records, 35 title fallbacks; 0 errors,
+idempotent. Schema note: still v0.2 but it changed content-only today (publisher now
+nullable) -- reinforces syncing the schema file over hardcoding.
+
 ## DataCite re-fetch mapping (`api.datacite.org/dois/{doi}` → `data.attributes`)
 
 | poster.json | DataCite attributes path | Merge rule |
