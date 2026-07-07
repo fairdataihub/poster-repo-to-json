@@ -1157,9 +1157,11 @@ def _is_definite_org(name) -> bool:
 
 
 def split_person_affiliation(name):
-    """Split 'Person Name. Affiliation. ...' at the FIRST sentence-final '. ' whose
-    leading part looks like a person and whose trailing part carries an institution
-    marker. Returns (person, affiliation), else (None, None)."""
+    """Extract (person, affiliation) when a person's name carries an affiliation.
+    Two forms: (1) sentence-final '. ' — 'Person Name. Affiliation'; (2) comma —
+    'Surname, Affiliation' where the tail carries an institution marker and is NOT a
+    plausible given name (so 'Davies, University of Bremen' splits but 'Davies, John'
+    does not). The period form is tried first. Returns (None, None) for a pure org."""
     s = str(name).strip()
     for m in _SENTENCE_BOUNDARY_RE.finditer(s):
         left = s[:m.start()].strip(" .,")
@@ -1168,6 +1170,12 @@ def split_person_affiliation(name):
             continue
         if _looks_person_name(left) and _INSTITUTION_MARKER_RE.search(right):
             return left, right
+    if "," in s:
+        head, tail = s.split(",", 1)
+        head = head.strip(" ."); tail = tail.strip(" .")
+        if (head and tail and len(head.split()) <= 3 and _looks_person_name(head)
+                and _INSTITUTION_MARKER_RE.search(tail) and not _looks_given(tail)):
+            return head, tail
     return None, None
 
 
@@ -1254,9 +1262,17 @@ def drop_llm_affiliation_creators(record: dict, deposit_creator_names) -> bool:
     dep = [name_tokens(x) for x in deposit_creator_names if x]
     if not any(dep):
         return False
-    kept = [c for c in cres if not (
-        _name_has_affiliation_marker(str((c or {}).get("name") or "").strip())
-        and not _creator_in_deposit(str((c or {}).get("name") or "").strip(), dep))]
+    kept = []
+    for c in cres:
+        nm = str((c or {}).get("name") or "").strip()
+        # Drop only a PURE organization (no extractable person — a 'Surname,
+        # Affiliation' or 'Name. Affiliation' is split, not dropped) that carries an
+        # institution marker and matches no deposit creator.
+        drop = (_name_has_affiliation_marker(nm)
+                and split_person_affiliation(nm) == (None, None)
+                and not _creator_in_deposit(nm, dep))
+        if not drop:
+            kept.append(c)
     if kept == cres or not kept:                  # no change, or would empty -> refuse
         return False
     record["creators"] = kept

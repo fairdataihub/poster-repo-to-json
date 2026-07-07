@@ -469,6 +469,7 @@ def test_normalize_affiliation_in_name():
     from poster_to_json.field_normalize import normalize_affiliation_in_name
     rec = {"creators": [
         {"name": "Velázquez Miranda, Santiago. Dept. of Medical Physics. Virgen del Rocio University Hospital"},
+        {"name": "Davies, University of Bremen"},   # comma-affiliation -> split, person kept
         {"name": "Dept. of Electrical Machines and Drives. Technical University of Cluj-Napoca"},
         {"name": "Torres-Company, Victor"}, {"name": "Companys, Berta"},
         {"name": "Stephens, Ag"}, {"name": "The, S.L"},
@@ -479,11 +480,12 @@ def test_normalize_affiliation_in_name():
     cs = rec["creators"]
     assert cs[0]["name"] == "Velázquez Miranda, Santiago"
     assert cs[0]["affiliation"] == [{"name": "Dept. of Medical Physics. Virgen del Rocio University Hospital"}]
-    assert cs[1]["nameType"] == "Organizational"
-    for i in (2, 3, 4, 5, 6, 7):  # real people / traps untouched
+    assert cs[1]["name"] == "Davies" and cs[1]["affiliation"] == [{"name": "University of Bremen"}]  # comma split
+    assert cs[2]["nameType"] == "Organizational"
+    for i in (3, 4, 5, 6, 7, 8):  # real people / traps untouched
         assert cs[i].get("nameType") != "Organizational" and "affiliation" not in cs[i], cs[i]
     assert normalize_affiliation_in_name(rec) is False
-    print("OK affiliation-in-name: (a) split, (b) org-tagged, persons w/ marker surnames kept")
+    print("OK affiliation-in-name: (a) period/comma split, (b) org-tagged, persons kept")
 
 
 def test_drop_llm_affiliation_creators():
