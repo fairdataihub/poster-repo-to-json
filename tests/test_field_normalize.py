@@ -584,6 +584,71 @@ def test_title_fallback():
     print("OK title_fallback: bad LLM titles -> deposit title; placeholders/filenames rejected")
 
 
+def test_collapse_multidate_ranges():
+    from poster_to_json.field_normalize import collapse_multidate_ranges
+    r = {"dates": [{"date": "2017-06-20/2017-06-22/2017-07-25/2017-07-27", "dateType": "Presented"}]}
+    assert collapse_multidate_ranges(r) and r["dates"][0]["date"] == "2017-06-20/2017-07-27"
+    r2 = {"dates": [{"date": "2024-06-24/2024-06-28/2024-06-28", "dateType": "Presented"}]}
+    assert collapse_multidate_ranges(r2) and r2["dates"][0]["date"] == "2024-06-24/2024-06-28"
+    r3 = {"dates": [{"date": "2021-05-01/2021-05-01/2021-05-01", "dateType": "Presented"}]}
+    assert collapse_multidate_ranges(r3) and r3["dates"][0]["date"] == "2021-05-01"   # dedup -> single
+    assert collapse_multidate_ranges({"dates": [{"date": "2020-06-06/2020-06-08"}]}) is False   # 2-part kept
+    assert collapse_multidate_ranges({"dates": [{"date": "2020-06-06"}]}) is False              # single kept
+    assert collapse_multidate_ranges(r) is False                                                # idempotent
+    print("OK collapse_multidate_ranges: 3+ ISO parts -> min/max, dedup -> single")
+
+
+def test_normalize_version():
+    from poster_to_json.field_normalize import normalize_version
+    for val in ("https://www.researchgate.net/publication/385782798_x", "www.example.com/v/2",
+                "Aktualisierte Version auf Basis von Vierkant et al. (2019). Fassung.",
+                "Complete List Of United Airlines(TM) Customer Service", "Call now 1-800-555-1234",
+                "18005551234", "   ", "This is the second revised edition of the work"):
+        rec = {"version": val}
+        assert normalize_version(rec) and "version" not in rec, val
+    for val in ("1", "1.0", "v2", "1.2.3", "2019-03", "Version 2", "1.0.0.20190315", "2.3.20201231"):
+        rec = {"version": val}
+        assert normalize_version(rec) is False and rec["version"] == val, val   # dotted versions kept
+    print("OK normalize_version: url/long/spam dropped, dotted/short versions kept")
+
+
+def test_drop_junk_related_identifiers():
+    from poster_to_json.field_normalize import drop_junk_related_identifiers, _relid_is_junk
+    for j in ("N/A", "URL", "tax", "NULL", "10.", "ab",
+              "https://pubmed.ncbi.nlm.nih.gov/Wentao%20L%2C%20Shuxia",   # %2C -> junk
+              "urn:isbn%3AAlbites%20Yanza%2C", "1.Modelling%20Nanomaterial%20Toxicity",  # %20 non-URL
+              None, 123, ""):
+        assert _relid_is_junk(j), j
+    for g in ("10.5281/zenodo.123456", "https://doi.org/10.1234/abc", "urn:isbn:9781234567890",
+              "https://example.org/files/Info%20Material/report.pdf"):   # single %20 in a URL -> kept
+        assert not _relid_is_junk(g), g
+    rec = {"relatedIdentifiers": [
+        {"relatedIdentifier": "10.5281/zenodo.1", "relatedIdentifierType": "DOI", "relationType": "References"},
+        {"relatedIdentifier": "N/A", "relatedIdentifierType": "DOI"},
+        {"relatedIdentifier": "https://pubmed.ncbi.nlm.nih.gov/Wentao%20L%2C", "relatedIdentifierType": "URL"}]}
+    assert drop_junk_related_identifiers(rec)
+    assert len(rec["relatedIdentifiers"]) == 1 and rec["relatedIdentifiers"][0]["relationType"] == "References"
+    assert drop_junk_related_identifiers(rec) is False   # idempotent
+    print("OK drop_junk_related_identifiers: placeholder/short/encoded junk dropped, real URLs kept")
+
+
+def test_drop_junk_descriptions():
+    from poster_to_json.field_normalize import drop_junk_descriptions
+    rec = {"descriptions": [
+        {"description": "This poster presents a real study of X on Y.", "descriptionType": "Abstract"},
+        {"description": "*", "descriptionType": "Other"},
+        {"description": '{"references": ["Borucki, W. J.", "Smith 2019"]}', "descriptionType": "Other"}]}
+    assert drop_junk_descriptions(rec)
+    assert [d["description"] for d in rec["descriptions"]] == ["This poster presents a real study of X on Y."]
+    assert drop_junk_descriptions(rec) is False   # idempotent
+    keep = {"descriptions": [
+        {"description": "A" * 4000, "descriptionType": "Abstract"},
+        {"description": "本研究探讨了纳米材料在能源存储中的应用。", "descriptionType": "Other"},
+        {"description": "{note} this is prose, not JSON at all", "descriptionType": "Other"}]}
+    assert drop_junk_descriptions(keep) is False   # long/CJK/brace-prose kept
+    print("OK drop_junk_descriptions: punct/short/JSON-blob dropped, prose (incl. CJK) kept")
+
+
 if __name__ == "__main__":
     for k, v in sorted(globals().items()):
         if k.startswith("test_"):

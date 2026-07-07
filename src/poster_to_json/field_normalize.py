@@ -7,6 +7,7 @@ Each normalizer mutates a record in place and returns True if it changed.
 
 Currently: conference. (creators, subjects, publisher, formats to follow.)
 """
+import json
 import re
 import unicodedata
 
@@ -1491,6 +1492,177 @@ def replace_bad_llm_title(record: dict, deposit_title=None) -> bool:
         return False
     entry = titles[0]
     titles[0] = {**entry, "title": new} if isinstance(entry, dict) else {"title": new}
+    return True
+
+
+_ISO_DATE_RE = re.compile(r"(\d{4})(?:-(\d{1,2})(?:-(\d{1,2}))?)?")
+
+
+def _iso_canonical(part):
+    """Canonical zero-padded ISO ("YYYY"/"YYYY-MM"/"YYYY-MM-DD") for a strict ISO date
+    part, else None (free text, year outside 1900..2100, or bad month/day)."""
+    m = _ISO_DATE_RE.fullmatch(str(part).strip())
+    if not m:
+        return None
+    y = int(m.group(1))
+    if not (1900 <= y <= 2100):
+        return None
+    mo = int(m.group(2)) if m.group(2) is not None else None
+    dd = int(m.group(3)) if m.group(3) is not None else None
+    if mo is not None and not (1 <= mo <= 12):
+        return None
+    if dd is not None and not (1 <= dd <= 31):
+        return None
+    if mo is not None and dd is not None:
+        return f"{y:04d}-{mo:02d}-{dd:02d}"
+    if mo is not None:
+        return f"{y:04d}-{mo:02d}"
+    return f"{y:04d}"
+
+
+def collapse_multidate_ranges(record: dict) -> bool:
+    """Collapse a malformed multi-date dates[].date (3+ '/'-separated ISO parts) to a
+    canonical 'min/max' range (or a single date if only one distinct date survives
+    de-dup). Only strict ISO parts count; non-ISO parts are dropped. Valid single dates
+    and 2-part ranges (<3 parts) are left untouched. Idempotent."""
+    dates = record.get("dates")
+    if not isinstance(dates, list):
+        return False
+    changed = False
+    for d in dates:
+        if not isinstance(d, dict):
+            continue
+        val = d.get("date")
+        if not isinstance(val, str) or val.count("/") < 2:
+            continue
+        canon = [c for c in (_iso_canonical(p) for p in val.split("/")) if c]
+        if not canon:
+            continue
+        distinct = set(canon)
+        new = next(iter(distinct)) if len(distinct) == 1 else f"{min(canon)}/{max(canon)}"
+        if new != val:
+            d["date"] = new
+            changed = True
+    return changed
+
+
+_VERSION_MAX_LEN = 25
+# Promo/spam markers a real version never carries. The phone-number run uses a
+# separator class WITHOUT '.' so dotted numeric versions (1.0.0.20190315) survive.
+_VERSION_SPAM_RE = re.compile(
+    r"[™®℠]"
+    r"|\(\s*(?:tm|r|sm|c)\s*\)"
+    r"|\d(?:[\s()+\-]*\d){8,}"
+    r"|\b(?:contact|hotline|helpline|toll[-\s]?free|call\s+now|customer\s+"
+    r"(?:service|care|support)|phone\s+num|complete\s+list\s+of|1[-\s]?800)\b",
+    re.I,
+)
+
+
+def _version_is_junk(v: str) -> bool:
+    s = v.strip()
+    if not s:
+        return True
+    if re.match(r"https?://|www\.", s, re.I):
+        return True
+    if len(s) > _VERSION_MAX_LEN:
+        return True
+    return bool(_VERSION_SPAM_RE.search(s))
+
+
+def normalize_version(record: dict) -> bool:
+    """Drop a top-level `version` that is clearly not a version: a URL, an over-long
+    sentence (>25 chars), or spam (trademark symbol / phone-number-like run / marketing
+    phrasing). Short plausible versions ("1.0","v2","1.2.3","2019-03") are kept.
+    Idempotent."""
+    v = record.get("version")
+    if not isinstance(v, str):
+        return False
+    if _version_is_junk(v):
+        record.pop("version", None)
+        return True
+    return False
+
+
+_RELID_PLACEHOLDER = frozenset({"n/a", "na", "url", "null", "none", "tax"})
+
+
+def _relid_is_junk(rel_id) -> bool:
+    """True if a relatedIdentifier is clearly junk: missing/non-string, a placeholder
+    word, <=3 alphanumerics, an encoded comma (%2C = mashed author list), or an encoded
+    space (%20) in a NON-URL value. A single %20 in an http(s) URL is a real path space
+    and is kept."""
+    if not isinstance(rel_id, str):
+        return True
+    s = rel_id.strip()
+    if not s or s.lower() in _RELID_PLACEHOLDER:
+        return True
+    low = s.lower()
+    if "%2c" in low:
+        return True
+    if "%20" in low and not low.startswith(("http://", "https://")):
+        return True
+    return len(re.sub(r"[^A-Za-z0-9]", "", s)) <= 3
+
+
+def drop_junk_related_identifiers(record: dict) -> bool:
+    """Drop relatedIdentifiers[] entries whose relatedIdentifier is junk (placeholder
+    word / <=3 alnum / encoded-comma / encoded-space-in-non-URL). Clean enum sub-fields
+    are never touched; non-dict entries preserved; an emptied list drops the key.
+    Idempotent."""
+    rels = record.get("relatedIdentifiers")
+    if not isinstance(rels, list):
+        return False
+    kept = [r for r in rels if not (
+        isinstance(r, dict) and _relid_is_junk(r.get("relatedIdentifier")))]
+    if kept == rels:
+        return False
+    if kept:
+        record["relatedIdentifiers"] = kept
+    else:
+        record.pop("relatedIdentifiers", None)
+    return True
+
+
+_DESC_JSON_BLOB_PREFIXES = ('{"references"', "{'references'")
+
+
+def _description_is_junk(val) -> bool:
+    """True if a description is junk: non-string, letterless, <=2 chars, or a raw JSON
+    blob (references dump, or a value that json.loads-parses to a dict/list). A
+    '{'-leading value that is NOT valid JSON is real prose and is kept."""
+    if not isinstance(val, str):
+        return True
+    s = val.strip()
+    if len(s) <= 2 or not _has_letter(s):
+        return True
+    if s.startswith(_DESC_JSON_BLOB_PREFIXES):
+        return True
+    if s[0] in "{[":
+        try:
+            parsed = json.loads(s)
+        except (ValueError, TypeError):
+            return False
+        if isinstance(parsed, (dict, list)):
+            return True
+    return False
+
+
+def drop_junk_descriptions(record: dict) -> bool:
+    """Drop junk descriptions[] entries (letterless / <=2 chars / raw JSON blob). Real
+    prose (even long / native-script) is kept; an emptied list drops the key; dropping
+    the Abstract but keeping an Other is fine. Idempotent."""
+    descs = record.get("descriptions")
+    if not isinstance(descs, list):
+        return False
+    kept = [d for d in descs
+            if not _description_is_junk(d.get("description") if isinstance(d, dict) else d)]
+    if len(kept) == len(descs):
+        return False
+    if kept:
+        record["descriptions"] = kept
+    else:
+        record.pop("descriptions", None)
     return True
 
 
