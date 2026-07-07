@@ -1446,8 +1446,6 @@ def title_is_bad_llm(title) -> bool:
         return True
     if len(s) > _MAX_TITLE_LEN:
         return True
-    if s.endswith(".") and len(s.split()) >= 12:
-        return True
     return False
 
 

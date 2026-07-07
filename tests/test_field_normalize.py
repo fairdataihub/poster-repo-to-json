@@ -564,10 +564,11 @@ def test_title_fallback():
     from poster_to_json.field_normalize import (
         title_is_bad_llm, title_is_reasonable, replace_bad_llm_title)
     for t in ("Aim", "SIP", "DH", "Introduction", "Results", "abstract.",
-              "This paragraph was mis read by the model as a title and it also ends here."):
+              "NFDI4Chem will be organizing a workshop on minimum information standards " + "x" * 220):
         assert title_is_bad_llm(t), t
-    for t in ("Graphene", "CRISPR", "Effect of Graphene Oxide on Cancer Cell Viability"):
-        assert not title_is_bad_llm(t), t
+    for t in ("Graphene", "CRISPR", "Effect of Graphene Oxide on Cancer Cell Viability",
+              "Demonstration of critical battery metals recovery from spent lithium-ion cells using a green process."):
+        assert not title_is_bad_llm(t), t   # legit long title ending in a period is kept
     assert title_is_reasonable("Effect of X on Cancer Cell Viability")
     assert not title_is_reasonable("poster_final_v2.pdf")     # filename
     assert not title_is_reasonable("Untitled Poster")         # merger placeholder (required fix)
