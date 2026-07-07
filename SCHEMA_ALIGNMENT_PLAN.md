@@ -353,6 +353,22 @@ incomplete; conference 937 missing conferenceName + 286 missing location.
 Delivered (pre 6,330 + 2025 2,199 files), idempotent (re-run 0/0), 0 errors. content/
 captions/researchField stay with poster2json (no change).
 
+**Adversarial-pass fixes (v0.35.1-0.35.2)** -- a final multi-lens verification of the shipped
+v0.35.0 code caught 4 real defects (live on ~8,500 records): (1) the meeting date parser's
+unconditional `" - " -> "/"` stranded the leading day of a single-year range ("5 - 7 May
+2021" -> start became the LAST day, 2021-05-07). Fixed to only split when both halves carry
+a year, propagate a trailing year onto a month-bearing left half for cross-month/cross-year
+ranges ("31 October - 1 December 2023" -> 2023-10-31/2023-12-01), and drop a nonsensical
+end<start. Same fix in schema_converter. (2) fill_conference_from_meeting could emit a
+nameless conference (schema requires conferenceName) -> now never writes one, and filters
+placeholder title/acronym. (3) funding carry-over broadened (match awardNumber / sole
+resolved entry) so a funder-name surface variant does not drop a resolved id. Corrected the
+delivered corpus: backfill_conference_fill.py now re-derives buggy-parsed start dates + drops
+nameless conferences (1,144 pre + 158 2025 records), delivered + idempotent. Corpus health
+measured: 0 posters missing an identifier (99.2/99.7% DOI, rest Figshare Handles); creator
+double-listing down from ~38% to ~1.9% (residual are ambiguous initials-vs-full near-dups);
+affiliation ROR 33-35% (precision-first text-matcher ceiling).
+
 ## DataCite re-fetch mapping (`api.datacite.org/dois/{doi}` → `data.attributes`)
 
 | poster.json | DataCite attributes path | Merge rule |
