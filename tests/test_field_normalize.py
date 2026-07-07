@@ -712,6 +712,35 @@ def test_drop_junk_captions():
     print("OK drop_junk_captions: punctuation/<=2 dropped, real captions kept")
 
 
+def test_portion4_unicode_preservation():
+    """Adversarial-pass regression: non-ASCII values must survive (Asian/Nepali corpus)."""
+    from poster_to_json.field_normalize import (
+        drop_junk_funding, clean_conference_junk, drop_junk_sections, drop_junk_captions)
+    # funding: non-ASCII (fullwidth) award number kept; CJK funder kept
+    rec = {"fundingReferences": [{"funderName": "日本学術振興会", "awardNumber": "２０２０"}]}
+    assert drop_junk_funding(rec) is False
+    assert rec["fundingReferences"][0]["awardNumber"] == "２０２０"
+    # conference: CJK name + Greek acronym kept (not stripped to 0 by an ASCII gauge)
+    conf = {"conference": {"conferenceName": "電子情報通信学会", "conferenceAcronym": "ΣΥΝ",
+                           "conferenceStartDate": "2020-06-01"}}
+    assert clean_conference_junk(conf) is False
+    assert conf["conference"]["conferenceName"] == "電子情報通信学会"
+    # sections: a short (2-char) CJK body is real content -> section kept (junk title stripped)
+    sec = {"content": {"sections": [{"sectionTitle": "1", "sectionContent": "方法"},
+                                    {"sectionTitle": "2024", "sectionContent": "In 2024 we ran it."}]}}
+    assert drop_junk_sections(sec)
+    secs = sec["content"]["sections"]
+    assert len(secs) == 2                                    # neither dropped
+    assert "sectionTitle" not in secs[0] and secs[0]["sectionContent"] == "方法"   # short CJK kept
+    assert secs[1]["sectionTitle"] == "2024"                 # numeric title label kept
+    assert drop_junk_sections(sec) is False                  # idempotent
+    # captions: short CJK caption kept (ASCII <=2 rule does not apply to it)
+    cap = {"imageCaptions": [{"caption": "方法"}, {"caption": "m3"}, {"caption": "*"}]}
+    assert drop_junk_captions(cap)
+    assert [c["caption"] for c in cap["imageCaptions"]] == ["方法"]   # CJK kept, ASCII "m3"/"*" dropped
+    print("OK portion4 unicode: non-ASCII award/conference/section/caption values preserved")
+
+
 if __name__ == "__main__":
     for k, v in sorted(globals().items()):
         if k.startswith("test_"):

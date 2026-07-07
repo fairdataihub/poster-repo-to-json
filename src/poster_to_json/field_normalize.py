@@ -1745,7 +1745,7 @@ def drop_junk_funding(record: dict) -> bool:
             changed = True
             continue
         an = fr.get("awardNumber")
-        if isinstance(an, str) and not re.search(r"[A-Za-z0-9]", an):
+        if isinstance(an, str) and not any(ch.isalnum() for ch in an):   # Unicode-aware: keep non-ASCII grant ids
             fr = {k: v for k, v in fr.items() if k != "awardNumber"}
             changed = True
         kept.append(fr)
@@ -1768,11 +1768,11 @@ def clean_conference_junk(record: dict) -> bool:
         return False
     changed = False
     cn = conf.get("conferenceName")
-    if isinstance(cn, str) and (not _has_letter(cn) or len(re.sub(r"[^A-Za-z0-9]", "", cn)) <= 2):
+    if isinstance(cn, str) and (not _has_letter(cn) or sum(1 for ch in cn if ch.isalnum()) <= 2):
         conf.pop("conferenceName", None)
         changed = True
     ca = conf.get("conferenceAcronym")
-    if isinstance(ca, str) and (not _has_letter(ca) or len(re.sub(r"[^A-Za-z0-9]", "", ca)) <= 1
+    if isinstance(ca, str) and (not _has_letter(ca) or sum(1 for ch in ca if ch.isalnum()) <= 1
                                 or len(ca) > 30):
         conf.pop("conferenceAcronym", None)
         changed = True
@@ -1799,11 +1799,16 @@ def drop_junk_sections(record: dict) -> bool:
             continue
         title = s.get("sectionTitle")
         body = s.get("sectionContent")
-        body_ok = isinstance(body, str) and _has_letter(body) and len(body.strip()) > 2
+        # any non-empty lettered body is real content (2 CJK chars = a word); never require length
+        body_ok = isinstance(body, str) and _has_letter(body) and bool(body.strip())
         title_letter = isinstance(title, str) and _has_letter(title)
-        title_junk = isinstance(title, str) and not _has_letter(title)
+        # a multi-char numeric title (a year like "2024") is a real heading, not junk
+        title_numeric = (isinstance(title, str) and not title_letter
+                         and len(title.strip()) > 1 and bool(re.search(r"[0-9]", title)))
+        title_real = title_letter or title_numeric
+        title_junk = isinstance(title, str) and not title_real
         title_overlong = title_letter and len(title.strip()) > 200
-        if not title_letter and not body_ok:
+        if not title_real and not body_ok:
             changed = True
             continue
         if title_junk:
@@ -1839,7 +1844,9 @@ def drop_junk_captions(record: dict) -> bool:
         kept = []
         for c in caps:
             cap = c.get("caption") if isinstance(c, dict) else c
-            if isinstance(cap, str) and (not _has_letter(cap) or len(cap.strip()) <= 2):
+            # <=2 cutoff only for ASCII: 2 CJK chars can be a whole word, so keep them
+            too_short = isinstance(cap, str) and cap.strip().isascii() and len(cap.strip()) <= 2
+            if isinstance(cap, str) and (not _has_letter(cap) or too_short):
                 continue
             kept.append(c)
         if len(kept) != len(caps):
