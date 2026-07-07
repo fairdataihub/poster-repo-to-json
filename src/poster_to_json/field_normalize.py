@@ -1714,3 +1714,137 @@ def sanitize_conference_dates(record: dict) -> bool:
             record["dates"] = kept
             changed = True
     return changed
+
+
+_FUNDER_ACK_RE = re.compile(
+    r"\b(?:supported by|funded (?:by|in part|through)|"
+    r"this (?:study|research|work|report|project) (?:was|is|were)|"
+    r"we (?:thank|acknowledge|are grateful|gratefully))\b", re.I)
+
+
+def drop_junk_funding(record: dict) -> bool:
+    """Clean fundingReferences[]. Drop an entry whose funderName is junk -- no letter, or
+    an acknowledgement sentence the LLM misread as a funder ("This study was supported by
+    ...") -- UNLESS it carries a funderIdentifier (a deposit-anchored funder is kept). Real
+    funder names, even long official agency names, are kept (the signal is acknowledgement
+    phrasing, not length). Also clears an awardNumber with no alphanumeric char (numeric
+    grant numbers are kept). Idempotent."""
+    funds = record.get("fundingReferences")
+    if not isinstance(funds, list):
+        return False
+    changed = False
+    kept = []
+    for fr in funds:
+        if not isinstance(fr, dict):
+            kept.append(fr)
+            continue
+        fn = fr.get("funderName")
+        has_id = bool(fr.get("funderIdentifier"))
+        name_junk = isinstance(fn, str) and (not _has_letter(fn) or _FUNDER_ACK_RE.search(fn))
+        if name_junk and not has_id:
+            changed = True
+            continue
+        an = fr.get("awardNumber")
+        if isinstance(an, str) and not re.search(r"[A-Za-z0-9]", an):
+            fr = {k: v for k, v in fr.items() if k != "awardNumber"}
+            changed = True
+        kept.append(fr)
+    if not changed:
+        return False
+    if kept:
+        record["fundingReferences"] = kept
+    else:
+        record.pop("fundingReferences", None)
+    return True
+
+
+def clean_conference_junk(record: dict) -> bool:
+    """Clear junk sub-fields of the flattened conference object: a conferenceName that is
+    no-letter or <=2 alphanumeric chars (a real name is longer), and a conferenceAcronym
+    that is no-letter, a single char, or >30 chars (a full title misread as an acronym).
+    The conference object and its dates are otherwise kept. Idempotent."""
+    conf = record.get("conference")
+    if not isinstance(conf, dict):
+        return False
+    changed = False
+    cn = conf.get("conferenceName")
+    if isinstance(cn, str) and (not _has_letter(cn) or len(re.sub(r"[^A-Za-z0-9]", "", cn)) <= 2):
+        conf.pop("conferenceName", None)
+        changed = True
+    ca = conf.get("conferenceAcronym")
+    if isinstance(ca, str) and (not _has_letter(ca) or len(re.sub(r"[^A-Za-z0-9]", "", ca)) <= 1
+                                or len(ca) > 30):
+        conf.pop("conferenceAcronym", None)
+        changed = True
+    return changed
+
+
+def drop_junk_sections(record: dict) -> bool:
+    """Clean content.sections[] (LLM-extracted). Drop a section whose title AND content
+    are both junk (no letter / empty). Strip a no-letter junk sectionTitle ("0") while
+    keeping its content. Demote an over-long (>200 char) sectionTitle -- really content
+    mis-split into the title slot -- into sectionContent when content is empty, else drop
+    the redundant title. Real sections and real content are kept. Idempotent."""
+    content = record.get("content")
+    if not isinstance(content, dict):
+        return False
+    sections = content.get("sections")
+    if not isinstance(sections, list):
+        return False
+    changed = False
+    kept = []
+    for s in sections:
+        if not isinstance(s, dict):
+            kept.append(s)
+            continue
+        title = s.get("sectionTitle")
+        body = s.get("sectionContent")
+        body_ok = isinstance(body, str) and _has_letter(body) and len(body.strip()) > 2
+        title_letter = isinstance(title, str) and _has_letter(title)
+        title_junk = isinstance(title, str) and not _has_letter(title)
+        title_overlong = title_letter and len(title.strip()) > 200
+        if not title_letter and not body_ok:
+            changed = True
+            continue
+        if title_junk:
+            s = {k: v for k, v in s.items() if k != "sectionTitle"}
+            changed = True
+        elif title_overlong:
+            if body_ok:
+                s = {k: v for k, v in s.items() if k != "sectionTitle"}
+            else:
+                s = {**s, "sectionContent": title}
+                s.pop("sectionTitle", None)
+            changed = True
+        kept.append(s)
+    if not changed:
+        return False
+    if kept:
+        content["sections"] = kept
+    else:
+        content.pop("sections", None)
+    return True
+
+
+def drop_junk_captions(record: dict) -> bool:
+    """Drop junk entries from imageCaptions[] and tableCaptions[] (LLM-extracted): a
+    caption that is no-letter (punctuation / bullet blob) or <=2 chars. Real captions,
+    even long ones, are kept. An emptied list drops its key. Idempotent."""
+    changed = False
+    for key in ("imageCaptions", "tableCaptions"):
+        caps = record.get(key)
+        if not isinstance(caps, list):
+            continue
+        kept = []
+        for c in caps:
+            cap = c.get("caption") if isinstance(c, dict) else c
+            if isinstance(cap, str) and (not _has_letter(cap) or len(cap.strip()) <= 2):
+                continue
+            kept.append(c)
+        if len(kept) != len(caps):
+            changed = True
+            if kept:
+                record[key] = kept
+            else:
+                record.pop(key, None)
+    return changed

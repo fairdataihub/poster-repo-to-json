@@ -33,7 +33,8 @@ from .field_normalize import (
     normalize_name_identifiers, drop_invalid_orcids, drop_letterless_creator_fields,
     normalize_affiliation_in_name, normalize_affiliation_names, replace_bad_llm_title,
     collapse_multidate_ranges, normalize_version, drop_junk_related_identifiers,
-    drop_junk_descriptions,
+    drop_junk_descriptions, drop_junk_funding, clean_conference_junk,
+    drop_junk_sections, drop_junk_captions,
 )
 
 
@@ -194,6 +195,10 @@ class MetadataMerger:
         drop_invalid_orcids(result)
         drop_junk_related_identifiers(result)
         drop_junk_descriptions(result)
+        drop_junk_funding(result)
+        clean_conference_junk(result)
+        drop_junk_sections(result)
+        drop_junk_captions(result)
         align_schema(result)
         normalize_name_identifiers(result)
         reconcile_publication_year(result)

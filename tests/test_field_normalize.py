@@ -649,6 +649,67 @@ def test_drop_junk_descriptions():
     print("OK drop_junk_descriptions: punct/short/JSON-blob dropped, prose (incl. CJK) kept")
 
 
+def test_drop_junk_funding():
+    from poster_to_json.field_normalize import drop_junk_funding
+    rec = {"fundingReferences": [
+        {"funderName": "Agencia Nacional de Promoción de la Investigación, el Desarrollo Tecnológico y la Innovación",
+         "awardNumber": "PICT-2019-1234"},                                   # real long agency name -> kept
+        {"funderName": "This study was supported by Academy of Finland grants 265966 to GP"},  # ACK -> drop
+        {"funderName": "-"},                                                  # no-letter -> drop
+        {"funderName": "funded by NIH", "funderIdentifier": "10.13039/100000002"},  # ACK but has id -> kept
+        {"funderName": "NSF", "awardNumber": "-"},                            # clear no-alnum awardNumber
+        {"funderName": "European Commission", "awardNumber": "874538"}]}      # numeric grant -> kept
+    assert drop_junk_funding(rec)
+    names = [f["funderName"] for f in rec["fundingReferences"]]
+    assert names == ["Agencia Nacional de Promoción de la Investigación, el Desarrollo Tecnológico y la Innovación",
+                     "funded by NIH", "NSF", "European Commission"]
+    assert "awardNumber" not in rec["fundingReferences"][2]                   # NSF's "-" cleared
+    assert rec["fundingReferences"][3]["awardNumber"] == "874538"             # numeric kept
+    assert drop_junk_funding(rec) is False                                    # idempotent
+    print("OK drop_junk_funding: ACK/no-letter dropped, agency names + numeric grants kept")
+
+
+def test_clean_conference_junk():
+    from poster_to_json.field_normalize import clean_conference_junk
+    rec = {"conference": {"conferenceName": "3", "conferenceAcronym": "C",
+                          "conferenceStartDate": "2020-06-01"}}
+    assert clean_conference_junk(rec)
+    assert "conferenceName" not in rec["conference"] and "conferenceAcronym" not in rec["conference"]
+    assert rec["conference"]["conferenceStartDate"] == "2020-06-01"           # dates kept
+    keep = {"conference": {"conferenceName": "EGU General Assembly", "conferenceAcronym": "EGU2020"}}
+    assert clean_conference_junk(keep) is False
+    print("OK clean_conference_junk: junk name/acronym cleared, real kept, dates untouched")
+
+
+def test_drop_junk_sections():
+    from poster_to_json.field_normalize import drop_junk_sections
+    rec = {"content": {"sections": [
+        {"sectionTitle": "Introduction", "sectionContent": "Real content here about the study."},
+        {"sectionTitle": "0", "sectionContent": "This section has real body text worth keeping."},  # strip title
+        {"sectionTitle": "1", "sectionContent": "*"},                         # both junk -> drop
+        {"sectionTitle": "X" * 250, "sectionContent": ""}]}}                  # overlong title -> demote
+    assert drop_junk_sections(rec)
+    secs = rec["content"]["sections"]
+    assert len(secs) == 3
+    assert secs[0]["sectionTitle"] == "Introduction"
+    assert "sectionTitle" not in secs[1] and secs[1]["sectionContent"].startswith("This section")
+    assert "sectionTitle" not in secs[2] and secs[2]["sectionContent"] == "X" * 250   # demoted
+    assert drop_junk_sections(rec) is False                                   # idempotent
+    print("OK drop_junk_sections: fully-junk dropped, junk title stripped, overlong title demoted")
+
+
+def test_drop_junk_captions():
+    from poster_to_json.field_normalize import drop_junk_captions
+    rec = {"imageCaptions": [
+        {"caption": "Figure 1: the experimental setup."}, {"caption": "*"}, {"caption": "!!"}],
+        "tableCaptions": [{"caption": "-"}]}
+    assert drop_junk_captions(rec)
+    assert [c["caption"] for c in rec["imageCaptions"]] == ["Figure 1: the experimental setup."]
+    assert "tableCaptions" not in rec                                         # emptied -> key dropped
+    assert drop_junk_captions(rec) is False                                   # idempotent
+    print("OK drop_junk_captions: punctuation/<=2 dropped, real captions kept")
+
+
 if __name__ == "__main__":
     for k, v in sorted(globals().items()):
         if k.startswith("test_"):
