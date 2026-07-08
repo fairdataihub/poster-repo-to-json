@@ -2,7 +2,7 @@
 
 > **Part of the Machine-Actionable Scientific Poster Initiative**
 
-Full pipeline for converting scientific posters into machine-actionable JSON. Uses [poster2json](https://github.com/fairdataihub/poster2json) for extraction (pdfalto + Qwen2-VL + Llama 3.1 8B), then enriches with Zenodo/Figshare repository metadata. Output conforms to the [poster-json-schema](https://posters.science/schema/v0.1/poster_schema.json) (DataCite 4.6 with poster extensions).
+Full pipeline for converting scientific posters into machine-actionable JSON. Uses [poster2json](https://github.com/fairdataihub/poster2json) for extraction (pdfalto + Qwen2-VL + Llama 3.1 8B), then enriches with Zenodo/Figshare repository metadata. Output conforms to the [poster-json-schema](https://posters.science/schema/v0.1/poster_schema.json) (DataCite 4.7 with poster extensions).
 
 **This `staging` branch** contains the refactored, production-hardened pipeline used to process the full Zenodo+Figshare corpus (~24K posters) on a multi-GPU node.
 
