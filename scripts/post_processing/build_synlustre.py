@@ -21,8 +21,13 @@ from collections import Counter
 import numpy as np
 
 
-def collect_terms(merged_glob, field):
-    """Counter of distinct term -> corpus frequency for the chosen field."""
+def collect_terms(merged_glob, field, cache_path=None):
+    """Counter of distinct term -> corpus frequency for the chosen field. Cached to JSON
+    so repeated eps runs don't re-scan the corpus (the slow part)."""
+    import os
+    if cache_path and os.path.exists(cache_path):
+        print(f"[synlustre] loading cached terms {cache_path}", flush=True)
+        return Counter(json.load(open(cache_path, encoding="utf-8")))
     c = Counter()
     for f in glob.glob(merged_glob):
         try:
@@ -51,6 +56,8 @@ def collect_terms(merged_glob, field):
                 n = s.get("subject") if isinstance(s, dict) else s
                 if isinstance(n, str) and n.strip():
                     c[n.strip()] += 1
+    if cache_path:
+        json.dump(dict(c), open(cache_path, "w", encoding="utf-8"), ensure_ascii=False)
     return c
 
 
@@ -120,7 +127,7 @@ def main():
                     help="0 = no PCA (full-dim, most granular). Only set for very large fields.")
     args = ap.parse_args()
 
-    counts = collect_terms(args.merged_glob, args.field)
+    counts = collect_terms(args.merged_glob, args.field, args.out + ".terms.json")
     synlustre, clusters = build_synlustre(counts, args.eps, args.out + ".emb", args.pca_dims)
     pickle.dump(synlustre, open(args.out, "wb"))
     with open(args.review, "w", encoding="utf-8") as o:
