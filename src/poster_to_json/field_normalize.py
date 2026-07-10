@@ -291,26 +291,47 @@ def _repository_of(record: dict):
     return None
 
 
-def normalize_publisher(record: dict, source: str = None) -> bool:
-    """publisher = the source repository (Zenodo/Figshare), per DataCite convention.
+_PUBLISHER_URL_RE = re.compile(r"https?://|www\.", re.I)
 
-    The depositor's/LLM's publisher (an institution, journal, PosterPresentations,
-    etc.) is replaced with the repository. `source` (e.g. the "zenodo"/"figshare"
-    corpus subdir) is authoritative when given; otherwise it's inferred from the
-    DOI. If the repository can't be determined, the value is left unchanged.
-    """
-    repo = None
+
+def _clean_publisher(name):
+    """NFKC-normalize + collapse-whitespace + trim a publisher name; return None if it
+    is junk (no letter, <=2 chars, a URL, or a placeholder) -- same rigor as the other
+    field normalizers."""
+    if not isinstance(name, str):
+        return None
+    s = re.sub(r"\s+", " ", unicodedata.normalize("NFKC", name)).strip()
+    if len(s) <= 2 or not _has_letter(s) or _is_placeholder(s) or _PUBLISHER_URL_RE.search(s):
+        return None
+    return s
+
+
+def _repo_fallback(record: dict, source: str = None):
     if source:
         s = source.strip().lower()
         if s == "zenodo":
-            repo = "Zenodo"
-        elif s == "figshare":
-            repo = "Figshare"
-    if not repo:
-        repo = _repository_of(record)
-    if not repo:
+            return "Zenodo"
+        if s == "figshare":
+            return "Figshare"
+    return _repository_of(record)
+
+
+def normalize_publisher(record: dict, source: str = None) -> bool:
+    """publisher = the poster2json extraction publisher, cleaned (NFKC + junk-drop, the
+    same rigor as the other fields). When the poster carries no usable extracted
+    publisher, fall back to the source repository (Zenodo/Figshare). Idempotent.
+
+    Reverted from the earlier repository-only collapse so the original poster publishers
+    (EPA, arXiv, PosterPresentations, universities, ...) survive; the value in the merged
+    record is the extraction publisher (the merge keeps it -- publisher is not a
+    metadata-authoritative field), so this only cleans it and supplies the fallback.
+    """
+    cur = record.get("publisher")
+    name = cur.get("name") if isinstance(cur, dict) else (cur if isinstance(cur, str) else None)
+    name = _clean_publisher(name) or _repo_fallback(record, source)
+    if not name:
         return False
-    want = {"name": repo}
+    want = {"name": name}
     if record.get("publisher") != want:
         record["publisher"] = want
         return True

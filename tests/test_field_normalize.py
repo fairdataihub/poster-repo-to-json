@@ -305,19 +305,23 @@ def test_conference_clean_noop():
     print("OK conference: clean object unchanged (idempotent)")
 
 
-def test_publisher_to_repository():
+def test_publisher_from_extraction_with_fallback():
+    # the extracted publisher is KEPT (cleaned), NOT collapsed to the repository
     z = {"identifiers": [{"identifier": "10.5281/zenodo.123", "identifierType": "DOI"}],
-         "publisher": {"name": "PosterPresentations.com"}}
+         "publisher": {"name": "  PosterPresentations.com "}}
     assert normalize_publisher(z)
-    assert z["publisher"] == {"name": "Zenodo"}
-    fs = {"identifiers": [{"identifier": "10.6084/m9.figshare.9", "identifierType": "DOI"}],
-          "publisher": {"name": "University of X"}}
-    assert normalize_publisher(fs)
-    assert fs["publisher"] == {"name": "Figshare"}
-    # no DOI -> unchanged
-    n = {"publisher": {"name": "Something"}}
-    assert normalize_publisher(n) is False
-    print("OK publisher: set to source repository")
+    assert z["publisher"] == {"name": "PosterPresentations.com"}      # kept + trimmed
+    assert normalize_publisher(z) is False                            # idempotent
+    epa = {"publisher": {"name": "U.S. Environmental  Protection Agency"}}
+    assert normalize_publisher(epa)
+    assert epa["publisher"] == {"name": "U.S. Environmental Protection Agency"}   # whitespace collapsed
+    # junk publisher -> repository fallback (from source)
+    j = {"publisher": {"name": "-"}}
+    assert normalize_publisher(j, source="zenodo") and j["publisher"] == {"name": "Zenodo"}
+    # no publisher -> repo fallback from the DOI
+    fs = {"identifiers": [{"identifier": "10.6084/m9.figshare.9", "identifierType": "DOI"}]}
+    assert normalize_publisher(fs) and fs["publisher"] == {"name": "Figshare"}
+    print("OK publisher: extraction publisher kept+cleaned, junk/empty -> repo fallback")
 
 
 def test_subjects_split_dedup_and_preserve_taxonomy():
