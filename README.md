@@ -190,6 +190,24 @@ python scripts/run_merge.py
 # Safe to re-run — only processes new files.
 ```
 
+## Entity normalization & synonym clustering
+
+Free-text organizational fields (`publisher`, `fundingReferences.funderName`, `creators.affiliation`, `subjects`) arrive in dozens of spelling and formatting variants for the same real entity. A corpus-wide pass collapses those variants to a canonical form so the same institution, funder, or subject reads consistently across records. The full settings live in [docs/SYNONYM_NORMALIZATION.md](docs/SYNONYM_NORMALIZATION.md).
+
+The approach ("synonym-lustre", `scripts/post_processing/build_synlustre.py`) embeds the distinct terms of a field with `gte-large`, clusters them with HDBSCAN, and maps every cluster member to the most frequent variant (embedding-centroid distance breaks ties). Two guards keep the merge conservative:
+
+- **ROR split.** A semantic cluster that spans two or more distinct RORs (e.g. *University of Washington* vs *Washington University*) is partitioned by ROR before a canonical is chosen, so distinct institutions never collapse together. ROR-less members attach to the nearest ROR sub-centroid.
+- **Acronym / short-token holdout.** Terms under 4 characters and all-caps single tokens (`ZHAW`, `LUH`, `GTC`) carry too little signal to place reliably, so they are held out of clustering and map to themselves — only distinguishable multi-word / mixed-case names are merged.
+
+Conference locations are normalized separately by **geocoding** (`conference_location_geocode.py`, Nominatim/OSM): variant strings that resolve to the same real place collapse, while genuinely different cities stay apart (a string embedding would wrongly merge "Graz" and "Vienna" as both "city in Austria"). Clustering quality is guarded by a **V-measure validation harness** (`validate_vmeasure.py`), which scores homogeneity/completeness against a gold set to pick and regression-check the epsilon per field.
+
+Per-field HDBSCAN `cluster_selection_epsilon` settings (default 0.35; the V-measure harness sweeps 0.20–0.50 to select each field's value — see the doc for the tuned numbers):
+
+- `publisher` — semantic cluster + most-frequent canonical, plus an LLM junk-cleaning pass on the resulting names.
+- `funder` — semantic cluster; duplicate `funderName`/`awardNumber` pairs collapse after mapping.
+- `affiliation` — semantic cluster **with ROR split** and acronym holdout; the strongest guard against cross-institution merges.
+- `subject` — semantic cluster, deduped case-insensitively; PCA is an opt-in `--pca-dims` flag for very large fields (e.g. `subject`), kept at many dims to preserve granularity.
+
 ## CLI Commands
 
 ```bash

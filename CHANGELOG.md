@@ -1,0 +1,41 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.37.0] - 2026-07-10
+
+### Added
+- **Acronym / short-token holdout in synonym clustering.** Acronyms and short
+  (`< 4` char) tokens are held out of the HDBSCAN clustering that collapses
+  `publisher` / `funder` / `affiliation` / `subject` variants, so they no longer
+  act as spurious join keys (e.g. `ZHAW → Z`, `LUH → HU`) and unrelated field
+  values sharing a short string are no longer merged.
+- **ROR-based cluster splitting for institution fields.** A synonym cluster that
+  spans two or more distinct ROR ids is partitioned back into per-ROR
+  sub-clusters before a canonical is chosen, so lexically-close but distinct
+  institutions (e.g. *University of Washington* vs *Washington University*) are
+  not collapsed together.
+- **Geocoding-based conference-location normalization.** Conference locations are
+  normalized by geocoding (Nominatim) and grouping on `(country, city)`, yielding
+  canonical `"City, Country"` names and keeping genuinely different places apart
+  instead of merging free-text variants.
+- **2025 publisher backfill + rigor cleaning.** Missing 2025 publishers are
+  sourced (Figshare custom field, else a local LLM from poster content), then run
+  through a deterministic rigor pass that drops hedge phrases, author citations,
+  bare-generic and placeholder junk to the repository fallback.
+- **V-measure validation harness.** Added `validate_vmeasure.py`, which scores
+  `publisher` / `funder` / `affiliation` / `subject` synonym-clustering quality
+  against a gold set with the V-measure metric across an epsilon sweep, to guard
+  against over-merge regressions and tune `cluster_selection_epsilon` per field.
+
+### Fixed
+- **Single-character and string-shaped affiliations.** Single-character junk
+  affiliations are dropped, and bare-string affiliations are coerced to proper
+  list-of-object form so the list-guarded normalizers no longer skip them.
+- **Short-acronym affiliation mis-merges.** Affiliations previously collapsed onto
+  a wrong short canonical are restored from the pre-merge snapshot.
+
+[0.37.0]: https://github.com/FAIRDataIHub/poster-repo-to-json/releases/tag/v0.37.0
