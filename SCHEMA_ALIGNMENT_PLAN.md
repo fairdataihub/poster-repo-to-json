@@ -369,6 +369,27 @@ measured: 0 posters missing an identifier (99.2/99.7% DOI, rest Figshare Handles
 double-listing down from ~38% to ~1.9% (residual are ambiguous initials-vs-full near-dups);
 affiliation ROR 33-35% (precision-first text-matcher ceiling).
 
+## Publisher revert: keep the extraction publisher (v0.36.0, 2026-07-10)
+
+The metrics "Top Publishers" chart collapsed to one Zenodo bar (30,875) + stray singletons.
+Root causes: (1) normalize_publisher OVERWROTE the poster2json extraction publisher with the
+bare repository; (2) the auto-index ingestion HARDCODES `const publisher = "Zenodo"`
+(add-extracted-posters.ts:128), never reading our data; (3) submission-path posters
+(job_worker) keep the LLM publisher instead of "Zenodo" -> the singletons. The deposit
+metadata (legacy Zenodo/Figshare) has NO publisher field; the real publishers live in the
+poster2json extraction `publisher` (EPA, arXiv, PosterPresentations, universities).
+- **normalize_publisher (reverted)**: keep the extraction publisher, cleaned (NFKC +
+  junk-drop, same rigor as other fields), fall back to Zenodo/Figshare when none. The merge
+  already keeps the extraction publisher (not a metadata-authoritative field).
+- **backfill_publisher_from_extraction.py**: re-source the delivered corpus from the flat
+  extraction files. pre-2025: 17,561 real publishers + 6,604 repo fallback (17,486 changed,
+  delivered). 2025: extraction `publisher` is null for all 7,198 -> Zenodo/Figshare fallback
+  (no-op); would need re-extraction to recover.
+- **Platform (flag-only, not pushed)**: docs/PUBLISHER_INGESTION_CHANGE.md documents the two
+  posters-science changes for Sanjay/Dorian (ingestion reads data.publisher.name;
+  job_worker forces "Zenodo" for submissions). The chart only reflects our data once they
+  land change 1. NOTE: not fuzzy-merging institutional variants (same rigor as others).
+
 ## DataCite re-fetch mapping (`api.datacite.org/dois/{doi}` → `data.attributes`)
 
 | poster.json | DataCite attributes path | Merge rule |
