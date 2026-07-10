@@ -37,27 +37,41 @@ _GENERIC = {
     "organization", "organisation", "company", "a company", "the company", "a research center",
     "various", "multiple", "n a", "the publisher", "publisher", "author", "the author", "the authors",
 }
+_CITATION = re.compile(r"\bet\s+al\b", re.I)        # "Haselman et al" is a citation, not a publisher
+
+
+def _unwrap(s):
+    """Strip surrounding quotes/asterisks/backticks ONLY when they wrap the whole string
+    (balanced). Leaves an internal-quote name like 'University of Campania \"Luigi Vanvitelli\"'
+    intact (it starts with a letter, ends with a quote -- not balanced)."""
+    s = s.strip()
+    prev = None
+    while prev != s:
+        prev = s
+        for q in ('"', "'", "`", "*"):
+            if len(s) >= 2 and s[0] == q and s[-1] == q:
+                s = s[1:-1].strip()
+    return s
 
 
 def clean_publisher(name):
     """Return a cleaned publisher string, or None if it is junk / not a real publisher."""
     if not isinstance(name, str):
         return None
-    s = name.strip().strip("\"'`*").strip()
-    s = _PREAMBLE.sub("", s).strip().strip("\"'`*.").strip()
+    s = _unwrap(name)                              # unwrap balanced wrappers, keep "Inc." intact
+    s = _unwrap(_PREAMBLE.sub("", s))
     c = _clean_publisher(s)                        # NFKC, url/placeholder/len<=2/no-letter gate
     if not c:
         return None
-    low = re.sub(r"[^a-z0-9 ]", " ", c.lower())
-    low = re.sub(r"\s+", " ", low).strip()
+    # generic check on the lowercased string WITHOUT stripping non-ASCII: a non-Latin name
+    # ending in a Latin word ("Εθνική ... University") must not collapse to bare "university".
+    low = re.sub(r"\s+", " ", c.lower()).strip(" .")
     if low in _GENERIC or _is_placeholder(c):
         return None
-    if _HEDGE.search(c):                           # LLM non-answer prose
+    if _HEDGE.search(c) or _CITATION.search(c):    # LLM non-answer prose / author citation
         return None
-    if len(c.split()) > 12:                        # a sentence, not a name
-        return None
-    if re.search(r"[.!?]\s+[A-Z]", c):             # multiple sentences
-        return None
+    if len(c.split()) > 15:                        # a paragraph, not a name (abbreviations
+        return None                                # like "U.S." keep real agency names safe)
     return c
 
 
