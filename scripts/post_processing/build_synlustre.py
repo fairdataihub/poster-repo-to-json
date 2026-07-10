@@ -71,6 +71,20 @@ def _norm_ror(s):
     return _re.sub(r"\s+", " ", s).strip()
 
 
+def _holdout(term):
+    """Terms that must NOT be semantically clustered: short strings and acronyms. A 3-4
+    char token or an all-caps single token (ZHAW, GTC, MIDAS, UK) carries too little signal
+    for the embedding to place reliably, so it clusters with unrelated short forms and picks
+    a wrong representative (ZHAW -> 'Z', LUH -> 'HU'). These pass through unchanged (map to
+    themselves); only distinguishable multi-word / mixed-case names are merged."""
+    t = str(term).strip()
+    if len(t) < 4:
+        return True
+    if " " not in t and any(c.isalpha() for c in t) and t == t.upper():
+        return True
+    return False
+
+
 def _split_by_ror(idxs, phrases, emb, ror_index):
     """Split a semantic cluster into per-ROR sub-clusters. A cluster spanning >=2 distinct
     RORs (e.g. University of Washington vs Washington University) is partitioned by ROR;
@@ -124,9 +138,18 @@ def build_synlustre(counts, eps, cache, pca_dims=0, ror_index=None):
         print(f"[synlustre] PCA {emb.shape} -> {pca_dims} dims (opt-in) ...", flush=True)
         cemb_all = PCA(n_components=pca_dims, random_state=0).fit_transform(emb).astype("float32")
         cemb_all /= np.clip(np.linalg.norm(cemb_all, axis=1, keepdims=True), 1e-9, None)
-    print(f"[synlustre] clustering (HDBSCAN eps={eps}) ...", flush=True)
-    labels = HDBSCAN(min_cluster_size=2, min_samples=1, cluster_selection_epsilon=eps,
-                     cluster_selection_method="leaf", metric="euclidean").fit_predict(cemb_all)
+    # Hold acronyms / short tokens OUT of the clustering (they map to themselves). We still
+    # embed every phrase (keeps the embedding cache valid) but only feed the clusterable
+    # subset to HDBSCAN, then scatter labels back; held-out terms stay label -1 (noise).
+    clusterable = [i for i, p in enumerate(phrases) if not _holdout(p)]
+    held = len(phrases) - len(clusterable)
+    print(f"[synlustre] clustering (HDBSCAN eps={eps}) on {len(clusterable)} terms; "
+          f"{held} acronym/short terms held out ...", flush=True)
+    labels = np.full(len(phrases), -1, dtype=int)
+    if clusterable:
+        sub = HDBSCAN(min_cluster_size=2, min_samples=1, cluster_selection_epsilon=eps,
+                      cluster_selection_method="leaf", metric="euclidean").fit_predict(cemb_all[clusterable])
+        labels[np.asarray(clusterable)] = sub
     synlustre, clusters = {}, {}
     split_count = [0]
 
