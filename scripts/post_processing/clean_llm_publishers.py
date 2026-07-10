@@ -28,8 +28,8 @@ _PREAMBLE = re.compile(r"^(the\s+)?(publisher|publishing organization|organizati
 _HEDGE = re.compile(r"(not specified|not provided|not mentioned|not clearly|not clear|not available|"
                     r"not found|not indicated|not stated|not listed|cannot be|could not be|can't be|"
                     r"unable to|no publisher|no explicit|no clear|based on the|appears to be|"
-                    r"the poster|this poster|the authors|the text|the document|the image|the abstract|"
-                    r"i cannot|i could not|unclear|unknown|would need|is not )", re.I)
+                    r"the poster\b|this poster\b|the authors\b|the text\b|the document\b|"
+                    r"the image\b|the abstract\b|i cannot|i could not|unclear|unknown|would need|is not )", re.I)
 _GENERIC = {
     "a university", "the university", "university", "a research institution", "research institution",
     "research institute", "institute", "research center", "research centre", "the institute",
@@ -70,9 +70,13 @@ def clean_publisher(name):
         return None
     if _HEDGE.search(c) or _CITATION.search(c):    # LLM non-answer prose / author citation
         return None
-    if len(c.split()) > 15:                        # a paragraph, not a name (abbreviations
-        return None                                # like "U.S." keep real agency names safe)
-    return c
+    if not _conservative and len(c.split()) > 15:  # a paragraph, not a name (abbreviations
+        return None                                # like "U.S." keep real agency names safe).
+    return c                                        # skipped in --conservative (extraction has
+                                                    # legitimately long institution names)
+
+
+_conservative = False
 
 
 def _fallback(src):
@@ -83,8 +87,12 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--merged-dir", required=True)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--conservative", action="store_true",
+                    help="skip the >15-word drop; for extraction publishers with long real names")
     ap.add_argument("--show", type=int, default=25)
     args = ap.parse_args()
+    global _conservative
+    _conservative = args.conservative
 
     st = {"scanned": 0, "cleaned": 0, "dropped_to_fallback": 0}
     samples = []
