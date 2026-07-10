@@ -77,9 +77,16 @@ def build_synlustre(counts, eps, cache):
 
     phrases = list(counts.keys())
     emb = _embed(phrases, cache)
+    cemb_all = emb
+    if len(phrases) > 20000:                          # PCA-reduce for scale (as pubverse does)
+        from sklearn.decomposition import PCA
+        ncomp = min(50, emb.shape[1])
+        print(f"[synlustre] PCA {emb.shape} -> {ncomp} dims for {len(phrases)} terms ...", flush=True)
+        cemb_all = PCA(n_components=ncomp, random_state=0).fit_transform(emb).astype("float32")
+        cemb_all /= np.clip(np.linalg.norm(cemb_all, axis=1, keepdims=True), 1e-9, None)
     print(f"[synlustre] clustering (HDBSCAN eps={eps}) ...", flush=True)
     labels = HDBSCAN(min_cluster_size=2, min_samples=1, cluster_selection_epsilon=eps,
-                     cluster_selection_method="leaf", metric="euclidean").fit_predict(emb)
+                     cluster_selection_method="leaf", metric="euclidean").fit_predict(cemb_all)
     synlustre, clusters = {}, {}
     for lbl in sorted(set(labels)):
         if lbl < 0:
@@ -88,7 +95,7 @@ def build_synlustre(counts, eps, cache):
         members = [phrases[i] for i in idxs]
         # canonical = the MOST FREQUENT variant (clean chart label); centroid-closest
         # only breaks ties among equally-frequent variants.
-        cemb = emb[idxs]
+        cemb = cemb_all[idxs]
         dists = cdist([cemb.mean(axis=0)], cemb, "euclidean")[0]
         rep_i = max(range(len(idxs)), key=lambda i: (counts[members[i]], -dists[i]))
         rep = members[rep_i]
