@@ -525,10 +525,12 @@ def test_normalize_affiliation_names():
             {"name": "Inst A; Inst B", "affiliationIdentifier": "https://ror.org/05kytsw45",
              "affiliationIdentifierScheme": "ROR"}]},
         {"name": "Solo", "affiliation": [" ", "'"]},
+        {"name": "Zed", "affiliation": [{"name": "e"}, "a", {"name": "MIT"}]},
     ]}
     assert normalize_affiliation_names(rec)
     cs = rec["creators"]
-    assert len(cs) == 4
+    assert len(cs) == 5
+    assert [a["name"] for a in cs[4]["affiliation"]] == ["MIT"]  # single letters dropped, "MIT" (>1) kept
     assert [a["name"] for a in cs[0]["affiliation"]] == [
         "Yonsei University", "University of California, Davis", "王大学"]
     assert len(cs[1]["affiliation"]) == 2                      # comma/and not split

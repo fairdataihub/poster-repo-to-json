@@ -1401,7 +1401,10 @@ def normalize_affiliation_names(record: dict) -> bool:
             parts = [name] if has_id else name.split(";")
             for part in parts:
                 nv = unicodedata.normalize("NFKC", part).strip()
-                if not _has_letter(nv):
+                # An affiliation must have a letter AND be more than one character: a
+                # single letter ("e", "a", "i") is OCR/extraction noise, never a real
+                # institution (unlike creator surnames, where "Ng"/"Li" are valid).
+                if not _has_letter(nv) or len(nv) == 1:
                     continue
                 key = nv.lower()
                 entry = {**a, "name": nv} if isinstance(a, dict) else nv
