@@ -71,18 +71,20 @@ def _embed(phrases, cache):
     return emb
 
 
-def build_synlustre(counts, eps, cache):
+def build_synlustre(counts, eps, cache, pca_dims=0):
     from sklearn.cluster import HDBSCAN
     from scipy.spatial.distance import cdist
 
     phrases = list(counts.keys())
     emb = _embed(phrases, cache)
     cemb_all = emb
-    if len(phrases) > 20000:                          # PCA-reduce for scale (as pubverse does)
+    # PCA is OFF by default -- it costs granularity (the fine distinctions that keep
+    # similar-but-distinct entities apart). Use it ONLY when full-dim HDBSCAN is
+    # infeasible (very large N), and then keep MANY dims to preserve granularity.
+    if pca_dims and pca_dims < emb.shape[1]:
         from sklearn.decomposition import PCA
-        ncomp = min(50, emb.shape[1])
-        print(f"[synlustre] PCA {emb.shape} -> {ncomp} dims for {len(phrases)} terms ...", flush=True)
-        cemb_all = PCA(n_components=ncomp, random_state=0).fit_transform(emb).astype("float32")
+        print(f"[synlustre] PCA {emb.shape} -> {pca_dims} dims (opt-in) ...", flush=True)
+        cemb_all = PCA(n_components=pca_dims, random_state=0).fit_transform(emb).astype("float32")
         cemb_all /= np.clip(np.linalg.norm(cemb_all, axis=1, keepdims=True), 1e-9, None)
     print(f"[synlustre] clustering (HDBSCAN eps={eps}) ...", flush=True)
     labels = HDBSCAN(min_cluster_size=2, min_samples=1, cluster_selection_epsilon=eps,
@@ -114,10 +116,12 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--review", required=True)
     ap.add_argument("--eps", type=float, default=0.35)
+    ap.add_argument("--pca-dims", type=int, default=0,
+                    help="0 = no PCA (full-dim, most granular). Only set for very large fields.")
     args = ap.parse_args()
 
     counts = collect_terms(args.merged_glob, args.field)
-    synlustre, clusters = build_synlustre(counts, args.eps, args.out + ".emb")
+    synlustre, clusters = build_synlustre(counts, args.eps, args.out + ".emb", args.pca_dims)
     pickle.dump(synlustre, open(args.out, "wb"))
     with open(args.review, "w", encoding="utf-8") as o:
         o.write("representative\tfreq\tmerged_variants\n")
