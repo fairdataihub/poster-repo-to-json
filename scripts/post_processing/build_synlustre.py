@@ -54,17 +54,30 @@ def collect_terms(merged_glob, field):
     return c
 
 
-def build_synlustre(counts, eps):
+def _embed(phrases, cache):
+    import hashlib
+    key = hashlib.sha1(("\n".join(phrases)).encode("utf-8")).hexdigest()[:16]
+    cpath = f"{cache}.{key}.npy"
+    import os
+    if os.path.exists(cpath):
+        print(f"[synlustre] loading cached embeddings {cpath}", flush=True)
+        return np.load(cpath)
     from sentence_transformers import SentenceTransformer
-    from sklearn.cluster import HDBSCAN
-    from scipy.spatial.distance import cdist
-
-    phrases = list(counts.keys())
     print(f"[synlustre] {len(phrases)} distinct terms; embedding with gte-large ...", flush=True)
     model = SentenceTransformer("Alibaba-NLP/gte-large-en-v1.5", trust_remote_code=True)
     emb = model.encode(phrases, convert_to_numpy=True, normalize_embeddings=True,
                        show_progress_bar=True, batch_size=256)
-    print("[synlustre] clustering (HDBSCAN) ...", flush=True)
+    np.save(cpath, emb)
+    return emb
+
+
+def build_synlustre(counts, eps, cache):
+    from sklearn.cluster import HDBSCAN
+    from scipy.spatial.distance import cdist
+
+    phrases = list(counts.keys())
+    emb = _embed(phrases, cache)
+    print(f"[synlustre] clustering (HDBSCAN eps={eps}) ...", flush=True)
     labels = HDBSCAN(min_cluster_size=2, min_samples=1, cluster_selection_epsilon=eps,
                      cluster_selection_method="leaf", metric="euclidean").fit_predict(emb)
     synlustre, clusters = {}, {}
@@ -72,16 +85,13 @@ def build_synlustre(counts, eps):
         if lbl < 0:
             continue                                  # noise -> maps to itself (omitted)
         idxs = np.where(labels == lbl)[0]
-        cemb = emb[idxs]
-        centroid = cemb.mean(axis=0)
-        dists = cdist([centroid], cemb, "euclidean")[0]
-        closest = np.where(dists == dists.min())[0]
-        if len(closest) > 1:
-            rep_i = closest[int(np.argmax([counts[phrases[idxs[i]]] for i in closest]))]
-        else:
-            rep_i = closest[0]
-        rep = phrases[idxs[rep_i]]
         members = [phrases[i] for i in idxs]
+        # canonical = the MOST FREQUENT variant (clean chart label); centroid-closest
+        # only breaks ties among equally-frequent variants.
+        cemb = emb[idxs]
+        dists = cdist([cemb.mean(axis=0)], cemb, "euclidean")[0]
+        rep_i = max(range(len(idxs)), key=lambda i: (counts[members[i]], -dists[i]))
+        rep = members[rep_i]
         for m in members:
             if m != rep:
                 synlustre[m] = rep                    # only store real remaps
@@ -100,7 +110,7 @@ def main():
     args = ap.parse_args()
 
     counts = collect_terms(args.merged_glob, args.field)
-    synlustre, clusters = build_synlustre(counts, args.eps)
+    synlustre, clusters = build_synlustre(counts, args.eps, args.out + ".emb")
     pickle.dump(synlustre, open(args.out, "wb"))
     with open(args.review, "w", encoding="utf-8") as o:
         o.write("representative\tfreq\tmerged_variants\n")
