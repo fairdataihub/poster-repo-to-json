@@ -63,6 +63,28 @@ def test_align_schema():
     print("OK align_schema: schema/internals/conference/affiliation/identifiers + prior fixes")
 
 
+def test_align_schema_research_field_conformance():
+    from poster_to_json.field_normalize import align_schema
+    # field-level value lifted to its OpenAlex parent domain, mirrored to `domain`
+    rec = {"researchField": "Computer Science"}
+    assert align_schema(rec)
+    assert rec["researchField"] == "Physical Sciences" and rec["domain"] == "Physical Sciences"
+    assert align_schema(rec) is False                       # idempotent
+    # already a domain -> kept, mirrored
+    rec2 = {"researchField": "Social Sciences"}
+    align_schema(rec2)
+    assert rec2["researchField"] == "Social Sciences" and rec2["domain"] == "Social Sciences"
+    # unmappable junk -> both omitted
+    rec3 = {"researchField": "null", "domain": "null"}
+    assert align_schema(rec3)
+    assert "researchField" not in rec3 and "domain" not in rec3
+    # foreign-language field mapped
+    rec4 = {"researchField": "Geowissenschaften"}
+    align_schema(rec4)
+    assert rec4["domain"] == "Physical Sciences"
+    print("OK researchField conformance: field->domain lift, mirror, omit unmappable")
+
+
 def test_ensure_presented_date():
     from poster_to_json.field_normalize import ensure_presented_date
     rec = {"conference": {"conferenceName": "AGU 2023",

@@ -788,6 +788,58 @@ _SCHEMA_URL = "https://posters.science/schema/v0.2/poster_schema.json"
 # that must survive align_schema's internal-field strip.
 _INGESTION_KEPT_FIELDS = frozenset({"_license_blocked"})
 
+# researchField must be one of the four OpenAlex top-level domains (poster_schema.json).
+_OA_DOMAINS = frozenset({"Health Sciences", "Life Sciences", "Physical Sciences", "Social Sciences"})
+# OpenAlex field / common-variant / foreign-language value -> parent domain, so a
+# field-level extraction ("Computer Science", "Arts and Humanities") is lifted to a
+# conformant domain rather than dropped. Unmapped non-domain values are omitted.
+_OA_FIELD_TO_DOMAIN = {
+    # Physical Sciences
+    "Computer Science": "Physical Sciences", "Computing": "Physical Sciences",
+    "Computer Science and Engineering": "Physical Sciences", "Artificial Intelligence": "Physical Sciences",
+    "Human-Computer Interaction (HCI)": "Physical Sciences", "Information Science": "Physical Sciences",
+    "Information Sciences": "Physical Sciences", "Information Systems": "Physical Sciences",
+    "Information Technology": "Physical Sciences", "Research Software Engineering": "Physical Sciences",
+    "Physics and Astronomy": "Physical Sciences", "Physics": "Physical Sciences",
+    "Engineering": "Physical Sciences", "Industrial Engineering": "Physical Sciences",
+    "Chemical Engineering": "Physical Sciences", "Water Resources Engineering": "Physical Sciences",
+    "Manufacturing": "Physical Sciences", "Engineering and Technology": "Physical Sciences",
+    "Engineering & Mathematics": "Physical Sciences", "Earth Sciences": "Physical Sciences",
+    "Earth Science": "Physical Sciences", "Earth sciences": "Physical Sciences",
+    "Earth and Planetary Sciences": "Physical Sciences", "Earth System Sciences": "Physical Sciences",
+    "Earth System Science": "Physical Sciences", "Geology": "Physical Sciences",
+    "Geological Sciences": "Physical Sciences", "Geosciences": "Physical Sciences",
+    "Geowissenschaften": "Physical Sciences", "Environmental Science": "Physical Sciences",
+    "Environmental Sciences": "Physical Sciences", "Energy": "Physical Sciences",
+    "Chemistry": "Physical Sciences", "Mathematics": "Physical Sciences",
+    "Materials Science": "Physical Sciences",
+    # Life Sciences
+    "Agricultural and Biological Sciences": "Life Sciences", "Agriculture": "Life Sciences",
+    "Agricultural Sciences": "Life Sciences", "Neuroscience": "Life Sciences",
+    "Immunology and Microbiology": "Life Sciences", "Bioinformatics": "Life Sciences",
+    "Biochemistry, Genetics and Molecular Biology": "Life Sciences",
+    # Health Sciences
+    "Health Professions": "Health Sciences", "Medicine": "Health Sciences",
+    "Veterinary": "Health Sciences", "Dentistry": "Health Sciences",
+    "Pharmacology, Toxicology and Pharmaceutics": "Health Sciences",
+    "Epidemiologia": "Health Sciences", "Forensic Science": "Health Sciences",
+    # Social Sciences
+    "Arts and Humanities": "Social Sciences", "Humanities": "Social Sciences",
+    "Digital Humanities": "Social Sciences", "Geistes- und Kulturwissenschaften": "Social Sciences",
+    "Education": "Social Sciences", "Musikpädagogik": "Social Sciences", "Psychology": "Social Sciences",
+    "Business, Management and Accounting": "Social Sciences", "Business": "Social Sciences",
+    "Business/Management": "Social Sciences", "Decision Sciences": "Social Sciences",
+    "Economics, Econometrics and Finance": "Social Sciences", "Language and Linguistics": "Social Sciences",
+    "Sprachwissenschaft": "Social Sciences", "Literaturwissenschaft": "Social Sciences",
+    "Law": "Social Sciences", "International Law": "Social Sciences", "Political Science": "Social Sciences",
+    "History": "Social Sciences", "Art History": "Social Sciences",
+    "Archeologia e Storia dell'arte": "Social Sciences", "Arte y Arqueología": "Social Sciences",
+    "Arquitetura e Urbanismo": "Social Sciences", "Philosophie": "Social Sciences",
+    "Religious Studies": "Social Sciences", "Library Services": "Social Sciences",
+    "Library": "Social Sciences", "Library and Information Science": "Social Sciences",
+    "Geography": "Social Sciences", "Geografia": "Social Sciences",
+}
+
 
 def align_schema(record: dict) -> bool:
     """Phase-1 schema alignment (see SCHEMA_ALIGNMENT_PLAN.md): fixed resource
@@ -816,12 +868,27 @@ def align_schema(record: dict) -> bool:
         record.pop("conference", None)
         changed = True
 
-    # domain: the auto-index ingestion (add-extracted-posters.ts) reads `domain`,
-    # but the schema field is `researchField`. Mirror researchField -> domain so the
-    # platform's domain column populates; researchField stays for schema conformance.
+    # researchField must be one of the four OpenAlex domains (poster_schema.json). Lift
+    # a field-level / foreign value up to its parent domain; drop an unmappable one.
+    # Then mirror to `domain`, the key the auto-index ingestion (add-extracted-posters.ts)
+    # reads -- researchField stays for schema conformance, domain feeds the platform column.
     rf = record.get("researchField")
-    if rf and record.get("domain") != rf:
-        record["domain"] = rf
+    if isinstance(rf, str):
+        dom = rf if rf in _OA_DOMAINS else _OA_FIELD_TO_DOMAIN.get(rf)
+        if dom is None:                                   # unmappable -> omit (schema allows null)
+            if record.pop("researchField", None) is not None:
+                changed = True
+            if record.pop("domain", None) is not None:
+                changed = True
+        else:
+            if record.get("researchField") != dom:
+                record["researchField"] = dom
+                changed = True
+            if record.get("domain") != dom:
+                record["domain"] = dom
+                changed = True
+    elif rf is None and "domain" in record:               # stray domain without researchField
+        record.pop("domain", None)
         changed = True
 
     # types -> Poster / Poster

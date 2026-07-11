@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.1] - 2026-07-10
+
+### Fixed
+- **`researchField` / `domain` schema conformance.** `poster_schema.json` requires
+  `researchField` to be one of the four OpenAlex top-level domains (Health / Life /
+  Physical / Social Sciences). `align_schema` now lifts field-level and
+  foreign-language values (Computer Science, Arts and Humanities, Geowissenschaften,
+  …) up to their parent domain and omits unmappable ones, then mirrors the result to
+  `domain` (the key the auto-index ingestion reads). `scripts/post_processing/
+  fix_research_field_domain.py` backfills this into an already-built corpus (1,085
+  records corrected in the delivered set).
+
 ## [0.37.0] - 2026-07-10
 
 ### Added
