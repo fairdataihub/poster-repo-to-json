@@ -36,6 +36,20 @@ def _norm_q(s):
     return re.sub(r"\s+", " ", s)
 
 
+# A PURELY virtual location (no physical city) must not be geocoded to a real place --
+# Nominatim fuzzy-matches "Online" -> Montpellier, "Virtual" -> Moscow, etc. These are
+# left unchanged. A string that also names a city ("Berlin / online") is NOT matched.
+_VIRTUAL_RE = re.compile(
+    r"^\W*(fully\s+|completely\s+)?(online|virtual|remote|hybrid|on[\s-]?line|web(inar|"
+    r"[\s-]?based)?|zoom|digital|distance|tele[\s-]?conference|e[\s-]?conference)"
+    r"([\s,./-]*(only|event|conference|conferences|meeting|format|mode|edition))*\W*$",
+    re.I)
+
+
+def _is_virtual(s):
+    return bool(_VIRTUAL_RE.match(str(s).strip()))
+
+
 def collect(merged_glob, work):
     c = Counter()
     for f in glob.glob(merged_glob):
@@ -85,6 +99,8 @@ def build(work):
     # group distinct strings by resolved (country_code, city); canonical = "City, Country"
     groups = {}
     for t, g in cache.items():
+        if _is_virtual(t):                       # "Online"/"Virtual"/... -> leave unchanged
+            continue
         if not g or not g.get("city") or not g.get("country"):
             continue
         key = (g.get("cc"), g["city"].lower())

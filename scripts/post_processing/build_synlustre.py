@@ -195,10 +195,17 @@ def main():
                     help="0 = no PCA (full-dim, most granular). Only set for very large fields.")
     ap.add_argument("--ror-index", default=None,
                     help="pickle from build_ror_index.py; splits clusters spanning >=2 RORs.")
+    ap.add_argument("--min-freq", type=int, default=1,
+                    help="only cluster terms occurring >= this many times (rarer terms map to "
+                         "themselves). Makes very large fields (e.g. subjects) tractable full-dim.")
     args = ap.parse_args()
 
     ror_index = pickle.load(open(args.ror_index, "rb")) if args.ror_index else None
     counts = collect_terms(args.merged_glob, args.field, args.out + ".terms.json")
+    if args.min_freq > 1:
+        kept = Counter({k: v for k, v in counts.items() if v >= args.min_freq})
+        print(f"[synlustre] min-freq {args.min_freq}: clustering {len(kept)}/{len(counts)} terms", flush=True)
+        counts = kept
     synlustre, clusters = build_synlustre(counts, args.eps, args.out + ".emb", args.pca_dims, ror_index)
     pickle.dump(synlustre, open(args.out, "wb"))
     with open(args.review, "w", encoding="utf-8") as o:

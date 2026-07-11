@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.2] - 2026-07-11
+
+### Added
+- **Conservative subject surface-merge** (`build_subject_surface_map.py`): folds only
+  surface variants (case, hyphen/punctuation, light plural stem) so `machine learning`
+  / `Machine Learning` / `machine-learning` collapse, while ANZSRC controlled-vocabulary
+  labels ("... not elsewhere classified") and distinct concepts are preserved. Unicode-safe
+  (non-Latin scripts are not stripped to an empty key).
+- **`build_synlustre.py --min-freq`**: only cluster terms at/above a frequency, making very
+  large fields (subjects, ~97K terms) tractable at full dimension without PCA.
+
+### Fixed
+- **Conference-location geocoding excludes virtual locations.** `conference_location_geocode.py`
+  no longer geocodes pure-virtual strings ("Online", "Virtual", "on-line", "Remote", ...),
+  which Nominatim fuzzy-matched to real cities (Online -> Montpellier, Virtual -> Moscow).
+  Strings that also name a city ("Berlin / online") are unaffected.
+
 ## [0.37.1] - 2026-07-10
 
 ### Fixed
