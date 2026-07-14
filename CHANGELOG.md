@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.4] - 2026-07-14
+
+### Fixed
+- **License classifier normalizes format variants** (`license_policy.classify_license`):
+  license strings are now folded fair-ly-style (strip case/spacing/punctuation) and
+  resolved through an alias map before whitelist/blocklist matching, so `CC BY 4.0`,
+  `CC0`, `cc-by`, `Apache 2.0`, `cc-by-3.0-us` classify correctly instead of falling to
+  `unknown`/blocked. Prevents wrongly stripping ~6k open posters.
+
 ## [0.37.3] - 2026-07-14
 
 ### Added

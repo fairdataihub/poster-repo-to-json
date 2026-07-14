@@ -123,3 +123,25 @@ if __name__ == "__main__":
         if name.startswith("test_"):
             fn()
     print("\nAll license checks passed.")
+
+
+def test_classify_license_normalizes_format_variants():
+    sys.path.insert(0, str(ROOT / "scripts" / "post_processing"))
+    from license_policy import classify_license, normalize_license
+    # format variants of allowed licenses (spaces, case, version-less, region ports)
+    assert normalize_license("CC BY 4.0") == "CC-BY-4.0"
+    assert normalize_license("CC0") == "CC0-1.0"
+    assert normalize_license("cc-by") == "CC-BY-4.0"
+    assert normalize_license("Apache 2.0") == "Apache-2.0"
+    assert normalize_license("cc-by-3.0-us") == "CC-BY-3.0"
+    for lic in ["CC BY 4.0", "CC0", "cc-by", "Apache 2.0", "gpl-3.0-or-later", "mit-license", "other-open"]:
+        assert classify_license([{"rights": lic}]) == "allowed", lic
+    # blocked variants
+    for lic in ["CC BY-ND 4.0", "CC-BY-NC-ND-4.0", "cc-by-nc-nd-4.0", "In Copyright", "All Rights Reserved"]:
+        assert classify_license([{"rights": lic}]) == "blocked", lic
+    # null / unrecognized
+    assert classify_license(None) == "blocked"
+    assert classify_license([{"rights": "Totally Made Up License"}]) == "unknown"
+    # dual licensing: one allowed wins
+    assert classify_license([{"rights": "In Copyright"}, {"rights": "CC BY 4.0"}]) == "allowed"
+    print("OK classify_license: format-variant normalization")

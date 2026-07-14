@@ -89,25 +89,63 @@ BLOCKED_LICENSES = frozenset({
     "other",
 })
 
-_ND_PATTERN = re.compile(r"CC-BY(-NC)?-ND", re.IGNORECASE)
+_ND_PATTERN = re.compile(r"ccby(nc)?nd", re.IGNORECASE)
+
+import unicodedata
 
 
-_BLOCKED_LOWER = frozenset(b.lower() for b in BLOCKED_LICENSES)
-_ALLOWED_UPPER = frozenset(a.upper() for a in ALLOWED_LICENSES)
+def _lkey(s: str) -> str:
+    """fair-ly-style folding: strip diacritics/case and every non-alphanumeric, so
+    'CC BY 4.0', 'cc-by-4.0', 'CC_BY_4.0' all fold to the same key 'ccby40'."""
+    s = unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+# canonical alphanumeric key -> canonical license id, from both lists
+_CANON_BY_KEY = {_lkey(lic): lic for lic in list(ALLOWED_LICENSES) + list(BLOCKED_LICENSES)}
+
+# vernacular / version-less / alternate forms -> canonical id. (Only forms NOT already
+# reachable by folding a list member; version-less CC defaults to the current 4.0.)
+_LICENSE_ALIASES = {
+    "cc0": "CC0-1.0", "cczero": "CC0-1.0", "creativecommonszero": "CC0-1.0",
+    "publicdomain": "other-pd", "pd": "other-pd",
+    "ccby": "CC-BY-4.0", "ccbysa": "CC-BY-SA-4.0", "ccbync": "CC-BY-NC-4.0",
+    "ccbyncsa": "CC-BY-NC-SA-4.0", "ccbynd": "CC-BY-ND-4.0", "ccbyncnd": "CC-BY-NC-ND-4.0",
+    "apache2": "Apache-2.0", "apachelicense20": "Apache-2.0", "asl20": "Apache-2.0",
+    "gpl": "GPL-3.0", "gpl3": "GPL-3.0", "gplv3": "GPL-3.0",
+    "gpl3orlater": "GPL-3.0", "gpl30orlater": "GPL-3.0", "gplv3orlater": "GPL-3.0",
+    "gpl2": "GPL-2.0", "gplv2": "GPL-2.0", "lgpl3": "LGPL-3.0", "lgplv3": "LGPL-3.0",
+    "mitlicense": "MIT", "bsd": "BSD-3-Clause", "bsd3": "BSD-3-Clause", "bsd2": "BSD-2-Clause",
+    "allrightsreserved": "In Copyright", "copyright": "In Copyright",
+}
+
+# strip a trailing region/port code after a version number (cc-by-3.0-us -> cc-by-3.0)
+_REGION_RE = re.compile(r"(\d)(us|uk|scotland|de|es|fr|it|nl|jp|au|ca|pt|br|igo|int|nz|za)$")
+
+
+def normalize_license(val) -> str:
+    """Return the canonical license id for a free-form license string, or None if
+    unrecognized. Folds spacing/case/punctuation and resolves common vernacular forms."""
+    if not isinstance(val, str) or not val.strip():
+        return None
+    k = _lkey(val)
+    for key in (k, _REGION_RE.sub(r"\1", k)):
+        if key in _CANON_BY_KEY:
+            return _CANON_BY_KEY[key]
+        if key in _LICENSE_ALIASES:
+            return _LICENSE_ALIASES[key]
+    return None
 
 
 def classify_license(rights_list) -> str:
     """Classify a rightsList as 'allowed', 'blocked', or 'unknown'.
 
-    If ANY entry matches the whitelist, returns 'allowed' -- a single
-    permissive license grants the derivative rights we need even if other
-    entries are restrictive (dual licensing).
-
-    Returns 'blocked' if no entry is allowed and at least one matches the
-    blocklist or ND pattern.
-
-    Returns 'unknown' if the list is empty/null or no entry matches either
-    list. Enforcement treats 'unknown' the same as 'blocked'.
+    Each license string is normalized (fair-ly folding + alias resolution) to a
+    canonical id before matching, so format variants like 'CC BY 4.0' resolve to
+    'CC-BY-4.0'. If ANY entry is allowed, returns 'allowed' (a single permissive
+    license grants the derivative rights we need, even under dual licensing).
+    Returns 'blocked' if none are allowed and at least one is blocked. Returns
+    'unknown' if empty/null or nothing resolves -- enforcement treats it as blocked.
     """
     if not rights_list:
         return "blocked"
@@ -124,16 +162,12 @@ def classify_license(rights_list) -> str:
             continue
 
         for field in ("rightsIdentifier", "rights"):
-            val = entry.get(field, "")
-            if not isinstance(val, str) or not val.strip():
+            canon = normalize_license(entry.get(field, ""))
+            if canon is None:
                 continue
-            val = val.strip()
-
-            if val in ALLOWED_LICENSES or val.upper() in _ALLOWED_UPPER:
+            if canon in ALLOWED_LICENSES:
                 return "allowed"
-            if val in BLOCKED_LICENSES or val.lower() in _BLOCKED_LOWER:
-                has_blocked = True
-            if _ND_PATTERN.search(val):
+            if canon in BLOCKED_LICENSES or _ND_PATTERN.search(_lkey(canon)):
                 has_blocked = True
 
     return "blocked" if has_blocked else "unknown"
