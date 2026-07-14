@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.1] - 2026-07-14
+
+### Fixed
+- **`restore_blocked_content` re-conforms the schema after re-attaching.** The re-attached
+  `researchField` is raw extraction, so restored records now run `align_schema` to lift it to
+  an OpenAlex domain and re-mirror `domain` (previously left non-conformant / mirror-stale).
+
 ## [0.38.0] - 2026-07-14
 
 ### Changed

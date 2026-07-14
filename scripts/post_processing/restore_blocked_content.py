@@ -38,6 +38,7 @@ _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 
 from poster_to_json.merger import MetadataMerger  # noqa: E402
+from poster_to_json.field_normalize import align_schema  # noqa: E402
 from license_policy import classify_license  # noqa: E402
 
 _merger = MetadataMerger()
@@ -82,6 +83,11 @@ def restore_record(merged, extraction, converted):
     if merged.get("_license_blocked"):
         del merged["_license_blocked"]
         changed = True
+
+    if changed:
+        # re-conform: the re-attached researchField is raw extraction, so lift it to an
+        # OpenAlex domain and re-mirror `domain` (align_schema is idempotent).
+        align_schema(merged)
 
     return changed
 
