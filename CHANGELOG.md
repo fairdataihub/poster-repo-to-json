@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.3] - 2026-07-14
+
+### Added
+- **Universal exact-collapse pass** (`collapse_exact.py`): merges field values that are
+  identical after aggressive normalization (strip diacritics, casing, and all whitespace /
+  punctuation down to alphanumerics), catching stray-formatting duplicates -- double / non-
+  breaking / zero-width spaces, casing, hyphenation (`Lyon,  France`, `PolitecnicodiTorino`,
+  `DigitalHumanities`). Deterministic and conservative: only byte-identical alphanumeric
+  content merges, so distinct entities (UC San Diego vs UC Berkeley) are never collapsed.
+  Runs for publisher / funder / affiliation / subject / location.
+
+### Fixed
+- **UC department-level cross-campus mis-merges** (`fix_uc_crosscampus.py`): 3 long
+  "Department of X, University of California, <campus>" strings had merged across campuses
+  (department name dominated the embedding; no ROR to split on). Restored from the pre-merge
+  snapshot (4 records). Clean campus names were unaffected.
+
 ## [0.37.2] - 2026-07-11
 
 ### Added
