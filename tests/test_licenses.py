@@ -145,3 +145,26 @@ def test_classify_license_normalizes_format_variants():
     # dual licensing: one allowed wins
     assert classify_license([{"rights": "In Copyright"}, {"rights": "CC BY 4.0"}]) == "allowed"
     print("OK classify_license: format-variant normalization")
+
+
+def test_merger_enforces_license_policy():
+    import copy
+    from poster_to_json.merger import MetadataMerger
+    merger = MetadataMerger()
+    base = {
+        "titles": [{"title": "T"}],
+        "content": {"sections": [{"sectionTitle": "Intro", "sectionContent": "body text here"}]},
+        "researchField": "Physical Sciences",
+        "descriptions": [{"description": "llm summary", "descriptionType": "Other"}],
+    }
+    # blocked (ND) -> content stripped, flag set
+    blocked = merger.merge(copy.deepcopy(base), {"rightsList": [{"rights": "CC-BY-ND-4.0"}]})
+    assert blocked.get("_license_blocked") is True
+    assert "content" not in blocked and "researchField" not in blocked
+    # allowed via FORMAT VARIANT "CC BY 4.0" -> content kept (in-pipeline normalization)
+    allowed = merger.merge(copy.deepcopy(base), {"rightsList": [{"rights": "CC BY 4.0"}]})
+    assert not allowed.get("_license_blocked") and "content" in allowed
+    # no license at all -> default-deny -> stripped
+    nolic = merger.merge(copy.deepcopy(base), {})
+    assert nolic.get("_license_blocked") is True and "content" not in nolic
+    print("OK merger enforces license policy: block ND / keep CC-BY(format variant) / default-deny")

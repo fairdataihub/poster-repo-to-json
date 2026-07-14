@@ -36,6 +36,7 @@ from .field_normalize import (
     drop_junk_descriptions, drop_junk_funding, clean_conference_junk,
     drop_junk_sections, drop_junk_captions, conform_to_schema,
 )
+from .license_policy import enforce_license
 
 
 def _first_deposit_title(metadata):
@@ -86,6 +87,12 @@ class MetadataMerger:
 
     poster2json output is the base. Repository metadata only fills gaps.
     """
+
+    # License policy is enforced by default: after merge, a poster whose license does not
+    # permit derivative redistribution (blocked, or unknown/unlisted -> default-deny) has
+    # its poster2json-derived content stripped, keeping only repository metadata. Set False
+    # only for internal runs that intentionally retain content regardless of license.
+    ENFORCE_LICENSE = True
 
     EXTRACTION_ONLY_FIELDS = [
         "content",
@@ -199,6 +206,8 @@ class MetadataMerger:
         clean_conference_junk(result)
         drop_junk_sections(result)
         drop_junk_captions(result)
+        if self.ENFORCE_LICENSE:                       # default license-policy enforcement
+            enforce_license(result)                    # strip poster content if not open-licensed
         align_schema(result)
         normalize_name_identifiers(result)
         reconcile_publication_year(result)

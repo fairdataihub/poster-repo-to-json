@@ -102,7 +102,8 @@ def test_descriptions_repo_primary_llm_other():
                           "descriptionType": "Abstract"}],
     }
     metadata = {"descriptions": [{"description": "Depositor's curated abstract.",
-                                  "descriptionType": "Abstract"}]}
+                                  "descriptionType": "Abstract"}],
+                "rightsList": [{"rights": "CC-BY-4.0"}]}  # open license: LLM summary retained
     out = merger.merge(extraction, metadata)
     assert out["descriptions"][0]["description"] == "Depositor's curated abstract."
     assert out["descriptions"][0]["descriptionType"] == "Abstract"

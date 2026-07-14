@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.0] - 2026-07-14
+
+### Changed
+- **License enforcement is now a default step of the pipeline.** `MetadataMerger.merge`
+  classifies each record and strips poster-derived content (sets `_license_blocked`) for any
+  non-open license (blocked or unknown/unlisted -> default-deny), via `enforce_license`. No
+  poster leaves the merge with content it is not licensed to redistribute. License logic
+  moved to `src/poster_to_json/license_policy.py` (single source of truth; the
+  scripts/post_processing shim re-exports it). Disable with `MetadataMerger.ENFORCE_LICENSE = False`.
+
 ## [0.37.5] - 2026-07-14
 
 ### Added

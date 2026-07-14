@@ -81,8 +81,19 @@ list. The default-blocked stance holds until that review is complete.
 
 ## Pipeline integration
 
-License enforcement runs as a default post-processing step after merge and before
-Azure sync. See `scripts/post_processing/enforce_license_policy.py`.
+License enforcement is a **default step of the pipeline itself**: every merged record is
+classified and, if its license is not open (blocked, or unknown/unlisted → default-deny),
+its poster-derived content is stripped and `_license_blocked` is set. This runs inside
+`MetadataMerger.merge` (`poster_to_json.merger`) via `enforce_license`, so no poster leaves
+the merge step with content it is not licensed to redistribute. It can be disabled only by
+setting `MetadataMerger.ENFORCE_LICENSE = False` (internal runs).
 
-The policy definitions (whitelist/blocklist) live in
-`scripts/post_processing/license_policy.py`.
+The policy definitions and logic (whitelist/blocklist, license-string normalization,
+`classify_license`, `strip_extracted_content`, `enforce_license`) live in
+`src/poster_to_json/license_policy.py`. License strings are normalized (fold
+case/spacing/punctuation + resolve aliases to canonical SPDX ids) before matching, so
+`CC BY 4.0` resolves to `CC-BY-4.0`.
+
+`scripts/post_processing/enforce_license_policy.py` re-runs enforcement over an
+already-built corpus (idempotent), and `restore_blocked_content.py` re-attaches content to
+records that a stricter/older classifier wrongly stripped but are now allowed.
