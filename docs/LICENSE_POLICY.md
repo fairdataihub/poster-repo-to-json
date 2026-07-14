@@ -38,8 +38,14 @@ the poster file; only repository metadata is retained.
 
 ## What is and is not included
 
-When a poster's license is blocked, the following fields are **not extracted** from
-the poster file:
+When a poster's license is blocked, **nothing is extracted from the poster file** — the
+poster is not run through poster2JSON at all, so there is no poster content, no
+poster-derived metadata, and no thumbnail. We only use the repository-provided deposition
+metadata to index the poster, and only when that metadata is itself openly accessible
+(which is the case, e.g., for Zenodo and Figshare, whose deposition metadata is CC0).
+
+A `_license_blocked: true` flag marks the record as metadata-only. The poster-derived
+fields below are therefore absent:
 
 - `content` (text sections)
 - `descriptions` (abstracts)
@@ -47,9 +53,8 @@ the poster file:
 - `tableCaptions` (table captions)
 - `researchField` (research domain)
 
-A `_license_blocked: true` flag is added to mark the record as metadata-only.
-
-Fields that **are** included (repository metadata, not derived from poster content):
+The fields that **are** included come from the repository deposition metadata (CC0 on
+Zenodo and Figshare), never from the poster file:
 
 - `identifiers`, `relatedIdentifiers`
 - `creators`, `contributors`
@@ -62,6 +67,17 @@ Fields that **are** included (repository metadata, not derived from poster conte
 - `formats`, `sizes`, `version`
 - `language`
 - `$schema`
+
+## New or unlisted licenses
+
+Any license that appears in **neither** list above — including a poster with **no license**
+or an **unrecognized license string** — is **treated as blocked by default**. Such a poster
+is indexed with repository deposition metadata only (no poster content, no thumbnail),
+exactly like any other blocked poster.
+
+When the pipeline encounters a license outside both lists, it must be **raised with the
+team**: we decide together which bucket it belongs in and add it to the most appropriate
+list. The default-blocked stance holds until that review is complete.
 
 ## Pipeline integration
 
