@@ -168,3 +168,24 @@ def test_merger_enforces_license_policy():
     nolic = merger.merge(copy.deepcopy(base), {})
     assert nolic.get("_license_blocked") is True and "content" not in nolic
     print("OK merger enforces license policy: block ND / keep CC-BY(format variant) / default-deny")
+
+
+def test_classify_from_datacite_cc_uri_and_display_name():
+    """DataCite deposits often drop rightsIdentifier and give only a
+    jurisdiction-named display string plus a creativecommons.org URI."""
+    from poster_to_json.license_policy import classify_license, normalize_license, _license_from_uri
+    # spelled-out display name with a country jurisdiction -> canonical, allowed
+    assert normalize_license("Creative Commons Attribution 3.0 Germany") == "CC-BY-3.0"
+    assert normalize_license("Creative Commons Attribution Non Commercial 4.0 International") == "CC-BY-NC-4.0"
+    # CC URI parsing (jurisdiction + version)
+    assert _license_from_uri("https://creativecommons.org/licenses/by/3.0/de/legalcode") == "CC-BY-3.0"
+    assert _license_from_uri("https://creativecommons.org/licenses/by-nc-sa/4.0/") == "CC-BY-NC-SA-4.0"
+    # classify uses rights, then rightsUri; an ND URI blocks
+    assert classify_license([{"rights": "Creative Commons Attribution 3.0 Germany",
+                              "rightsUri": "https://creativecommons.org/licenses/by/3.0/de/legalcode"}]) == "allowed"
+    assert classify_license([{"rights": "Creative Commons Attribution Non Commercial No Derivatives 3.0 Germany",
+                              "rightsUri": "https://creativecommons.org/licenses/by-nc-nd/3.0/de/legalcode"}]) == "blocked"
+    assert classify_license([{"rights": "x", "rightsUri": "https://creativecommons.org/licenses/by/4.0/"}]) == "allowed"
+    # non-license access-level strings stay unresolved (default-deny)
+    assert classify_license([{"rights": "Restricted Access", "rightsUri": "info:eu-repo/semantics/restrictedAccess"}]) == "unknown"
+    print("OK classify recovers CC licenses from DataCite display names and URIs")

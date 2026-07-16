@@ -64,11 +64,54 @@ _LICENSE_ALIASES = {
 }
 
 _REGION_RE = re.compile(r"(\d)(us|uk|scotland|de|es|fr|it|nl|jp|au|ca|pt|br|igo|int|nz|za)$")
+_CC_URI_RE = re.compile(r"creativecommons\.org/(licenses|publicdomain)/([a-z0-9-]+)(?:/(\d\.\d))?", re.I)
+_CC_VER_RE = re.compile(r"(\d)(\d)")
+
+
+def _cc_from_display(k):
+    """Canonical CC id from a folded spelled-out name, e.g.
+    'creativecommonsattributionnoncommercial40international' -> 'CC-BY-NC-4.0'.
+    Handles the jurisdiction-named forms DataCite emits ('... 3.0 Germany')."""
+    if "creativecommons" not in k:
+        return None
+    if "zero" in k:
+        return "CC0-1.0"
+    if "attribution" not in k:
+        return None
+    elems = ["BY"]
+    if "noncommercial" in k:
+        elems.append("NC")
+    if "noderiv" in k:                       # noderiv / noderivs / noderivatives
+        elems.append("ND")
+    if "sharealike" in k:
+        elems.append("SA")
+    m = _CC_VER_RE.search(k)
+    ver = f"{m.group(1)}.{m.group(2)}" if m else "4.0"
+    return "CC-" + "-".join(elems) + "-" + ver
+
+
+def _license_from_uri(uri):
+    """Canonical license id from a creativecommons.org rightsUri, or None. The URI
+    path is the most reliable license signal a DataCite deposit carries (many drop
+    rightsIdentifier and give only a jurisdiction-named display string + URI)."""
+    if not isinstance(uri, str):
+        return None
+    m = _CC_URI_RE.search(uri)
+    if not m:
+        return None
+    kind, code, ver = m.group(1).lower(), m.group(2).lower(), m.group(3) or "4.0"
+    if kind == "publicdomain":
+        return "CC0-1.0" if code in ("zero", "cc0") else "other-pd"
+    elems = [e for e in code.split("-") if e in ("by", "nc", "nd", "sa")]
+    if "by" not in elems:
+        return None
+    return "CC-" + "-".join(e.upper() for e in elems) + "-" + ver
 
 
 def normalize_license(val):
     """Return the canonical license id for a free-form license string, or None if
-    unrecognized. Folds spacing/case/punctuation and resolves common vernacular forms."""
+    unrecognized. Folds spacing/case/punctuation, resolves common vernacular forms,
+    strips a jurisdiction suffix, and parses spelled-out Creative Commons names."""
     if not isinstance(val, str) or not val.strip():
         return None
     k = _lkey(val)
@@ -77,6 +120,10 @@ def normalize_license(val):
             return _CANON_BY_KEY[key]
         if key in _LICENSE_ALIASES:
             return _LICENSE_ALIASES[key]
+    cc = _cc_from_display(k)
+    if cc:
+        # re-fold so a jurisdiction/version variant lands on a set member
+        return _CANON_BY_KEY.get(_lkey(cc), cc)
     return None
 
 
@@ -99,14 +146,15 @@ def classify_license(rights_list) -> str:
             entry = {"rights": entry}
         if not isinstance(entry, dict):
             continue
-        for field in ("rightsIdentifier", "rights"):
-            canon = normalize_license(entry.get(field, ""))
-            if canon is None:
-                continue
-            if canon in ALLOWED_LICENSES:
-                return "allowed"
-            if canon in BLOCKED_LICENSES or _ND_PATTERN.search(_lkey(canon)):
-                has_blocked = True
+        canon = (normalize_license(entry.get("rightsIdentifier", ""))
+                 or normalize_license(entry.get("rights", ""))
+                 or _license_from_uri(entry.get("rightsUri", "")))
+        if canon is None:
+            continue
+        if canon in ALLOWED_LICENSES:
+            return "allowed"
+        if canon in BLOCKED_LICENSES or _ND_PATTERN.search(_lkey(canon)):
+            has_blocked = True
     return "blocked" if has_blocked else "unknown"
 
 
