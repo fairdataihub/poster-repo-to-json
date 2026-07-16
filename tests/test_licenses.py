@@ -189,3 +189,23 @@ def test_classify_from_datacite_cc_uri_and_display_name():
     # non-license access-level strings stay unresolved (default-deny)
     assert classify_license([{"rights": "Restricted Access", "rightsUri": "info:eu-repo/semantics/restrictedAccess"}]) == "unknown"
     print("OK classify recovers CC licenses from DataCite display names and URIs")
+
+
+def test_recover_publication_year_from_date_signals():
+    """The export stamps the ingest year on every record; recover the real year
+    from dates[] (Issued preferred), else publishedAt, else conference."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "bpy", str(ROOT / "scripts/post_processing/backfill_export_publication_year.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    # dates[] Issued wins over publishedAt
+    assert mod.recover_year({"publishedAt": "2026-01-01",
+                             "posterJson": {"dates": [{"date": "2019-05-02", "dateType": "Issued"}]}}) == 2019
+    # fall back to publishedAt when no usable dates[]
+    assert mod.recover_year({"publishedAt": "2021-09-05T00:00:00Z", "posterJson": {}}) == 2021
+    # fall back to conference
+    assert mod.recover_year({"posterJson": {"conference": {"conferenceStartDate": "2017-03-10"}}}) == 2017
+    # nothing usable -> None (record left unchanged upstream)
+    assert mod.recover_year({"posterJson": {}}) is None
+    print("OK recover_year prefers Issued date, then publishedAt, then conference")
