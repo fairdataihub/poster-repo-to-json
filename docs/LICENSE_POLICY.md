@@ -97,3 +97,40 @@ case/spacing/punctuation + resolve aliases to canonical SPDX ids) before matchin
 `scripts/post_processing/enforce_license_policy.py` re-runs enforcement over an
 already-built corpus (idempotent), and `restore_blocked_content.py` re-attaches content to
 records that a stricter/older classifier wrongly stripped but are now allowed.
+
+## Redistribution tiers (the three Zenodo archives)
+
+The extraction rule above is **binary**: a license either permits deriving content
+(kept) or does not (metadata-only). Public redistribution needs one more axis, because
+commercial and non-commercial reuse cannot share a single archive license. The
+openly-processed posters are therefore split into **three license-separated archives**
+for deposit:
+
+| Tier | Archive (Zenodo license) | Licenses | Reuse |
+|------|--------------------------|----------|-------|
+| Commercial + derivatives | **A** — CC-BY-4.0 | CC-BY (2.0-4.0), CC-BY-SA, and OSI software licenses (MIT, Apache-2.0, GPL-2.0/3.0, LGPL, BSD, ISC, MPL, Unlicense), other-open | Attribution; commercial use and derivatives allowed |
+| Public domain + restricted metadata | **B** — CC0-1.0 | CC0-1.0 and other-pd (full content); all metadata-only records ride here | CC0 posters unrestricted; restricted records are metadata-only |
+| Non-commercial | **C** — CC-BY-NC-4.0 | CC-BY-NC, CC-BY-NC-SA | Attribution; non-commercial only; derivatives allowed |
+
+Rules for the split:
+
+- **The per-poster `rightsList` is authoritative.** The archive-level Zenodo license
+  (CC-BY-4.0 / CC0-1.0 / CC-BY-NC-4.0) covers the compilation and metadata; each poster
+  keeps its own license inside `posterJson.rightsList`.
+- **No-derivatives (ND) rule:** CC-BY-ND and CC-BY-NC-ND posters are **always
+  metadata-only**, never full content, in any archive. They ride in Archive B.
+- **Share-alike:** CC-BY-SA (in A) and CC-BY-NC-SA (in C) are kept but flagged in the
+  archive README; derivatives must be shared under the same license. Software copyleft
+  (GPL/LGPL) carries the same kind of obligation.
+- **Why the restricted metadata rides in the CC0 archive:** repository deposit metadata
+  is openly licensed (CC0 on Zenodo and Figshare) regardless of the poster's own license,
+  so the metadata-only records are distributed under CC0 in Archive B. No content that a
+  restrictive license forbids redistributing is ever included.
+
+Counts as of the 2026-08-04 export (31,417 records): Archive A 29,113 (CC-BY 28,677,
+CC-BY-SA 314, software 111, other-open 11); Archive B 1,818 (826 CC0/public-domain full +
+992 metadata-only); Archive C 486 (CC-BY-NC 367, CC-BY-NC-SA 119).
+
+Zenodo DOIs (add once minted): Archive A `10.5281/zenodo.21401531`; Archive B `TBD`;
+Archive C `TBD`. Link each tier to its archive DOI on the docs.posters.science license
+page and the Behind the Scenes section.
