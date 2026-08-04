@@ -139,7 +139,7 @@ adding one license on top of the previous:
 
 CC0 content is in every tier (it carries no conditions, so it is compatible with any
 deposit license) and CC-BY content is in tiers 2 and 3. **Deposit 3 is the complete
-deposit: its content set is identical to the BOSC CoFest database export.**
+deposit: it carries content for every poster whose license permits it.**
 
 - **Full metadata for every poster ships in all three deposits.** Repository deposit
   metadata is openly licensed (CC0 on Zenodo and Figshare) regardless of the poster's own
