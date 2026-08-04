@@ -98,39 +98,61 @@ case/spacing/punctuation + resolve aliases to canonical SPDX ids) before matchin
 already-built corpus (idempotent), and `restore_blocked_content.py` re-attaches content to
 records that a stricter/older classifier wrongly stripped but are now allowed.
 
-## Redistribution tiers (the three Zenodo archives)
+## License types and the three Zenodo archives
 
 The extraction rule above is **binary**: a license either permits deriving content
-(kept) or does not (metadata-only). Public redistribution needs one more axis, because
-commercial and non-commercial reuse cannot share a single archive license. The
-openly-processed posters are therefore split into **three license-separated archives**
-for deposit:
+(kept) or does not (metadata-only). Redistribution needs the finer split below. Each
+poster falls into one of **four license types**, and the openly-processed posters are
+deposited as **three license-separated archives**.
 
-| Tier | Archive (Zenodo license) | Licenses | Reuse |
-|------|--------------------------|----------|-------|
-| Commercial + derivatives | **A** — CC-BY-4.0 | CC-BY (2.0-4.0), CC-BY-SA, and OSI software licenses (MIT, Apache-2.0, GPL-2.0/3.0, LGPL, BSD, ISC, MPL, Unlicense), other-open | Attribution; commercial use and derivatives allowed |
-| Public domain + restricted metadata | **B** — CC0-1.0 | CC0-1.0 and other-pd (full content); all metadata-only records ride here | CC0 posters unrestricted; restricted records are metadata-only |
-| Non-commercial | **C** — CC-BY-NC-4.0 | CC-BY-NC, CC-BY-NC-SA | Attribution; non-commercial only; derivatives allowed |
+### License types
 
-Rules for the split:
+| Type | Licenses | Content | Commercial | Derivatives |
+|------|----------|---------|------------|-------------|
+| **Fully open** | CC-BY (2.0-4.0), CC-BY-SA, CC0-1.0, other-open, other-pd, OSI software (MIT, Apache-2.0, GPL-2.0/3.0, LGPL, BSD, ISC, MPL, Unlicense) | kept | yes | yes |
+| **Non-commercial** | CC-BY-NC, CC-BY-NC-SA | kept | **no** | yes |
+| **Non-derivative** | CC-BY-ND, CC-BY-NC-ND | **metadata only** | n/a | **no** |
+| **Restricted / undetermined** | In Copyright, All Rights Reserved, Copyright not evaluated/undetermined, other-at/closed/nc, unlicensed/null | **metadata only** | no | no |
 
+- **Non-commercial** is its own type: the content is kept, but reuse is limited to
+  non-commercial purposes.
+- **Non-derivative (ND)** is its own type: ND forbids derivative works, so ND posters are
+  **always metadata-only**, never full content, in every archive, even though extraction
+  would otherwise be permitted for some of them.
+- Share-alike (CC-BY-SA, CC-BY-NC-SA) is kept within its type but flagged in the archive
+  README; derivatives must be shared under the same license. Software copyleft (GPL/LGPL)
+  carries the same kind of obligation.
+
+### The three archives
+
+| Archive (Zenodo license) | Contents | Reuse |
+|--------------------------|----------|-------|
+| **A — CC-BY** (CC-BY-4.0) | All CC-BY posters (with CC-BY-SA, software, other-open) | Attribution; commercial use and derivatives |
+| **B — CC0 + exclusion metadata** (CC0-1.0) | CC0 and public-domain posters (full) + all non-derivative and restricted posters as metadata-only | CC0 posters unrestricted; restricted are metadata-only |
+| **C — Non-commercial** (CC-BY-NC-4.0) | All CC-BY-NC posters **plus all CC-BY posters** | Everything usable non-commercially in one download; the CC-BY subset is also commercial |
+
+- **Archive C intentionally includes the CC-BY posters** so a non-commercial reuser gets
+  everything they can use in a single download. The CC-BY posters therefore appear in both
+  A and C; that duplication is deliberate.
 - **The per-poster `rightsList` is authoritative.** The archive-level Zenodo license
-  (CC-BY-4.0 / CC0-1.0 / CC-BY-NC-4.0) covers the compilation and metadata; each poster
-  keeps its own license inside `posterJson.rightsList`.
-- **No-derivatives (ND) rule:** CC-BY-ND and CC-BY-NC-ND posters are **always
-  metadata-only**, never full content, in any archive. They ride in Archive B.
-- **Share-alike:** CC-BY-SA (in A) and CC-BY-NC-SA (in C) are kept but flagged in the
-  archive README; derivatives must be shared under the same license. Software copyleft
-  (GPL/LGPL) carries the same kind of obligation.
-- **Why the restricted metadata rides in the CC0 archive:** repository deposit metadata
-  is openly licensed (CC0 on Zenodo and Figshare) regardless of the poster's own license,
-  so the metadata-only records are distributed under CC0 in Archive B. No content that a
+  covers the compilation and metadata; each poster keeps its own license, and the CC-BY
+  posters in Archive C remain CC-BY.
+- **Why the restricted metadata rides in the CC0 archive:** repository deposit metadata is
+  openly licensed (CC0 on Zenodo and Figshare) regardless of the poster's own license, so
+  the metadata-only records are distributed under CC0 in Archive B. No content that a
   restrictive license forbids redistributing is ever included.
 
-Counts as of the 2026-08-04 export (31,417 records): Archive A 29,113 (CC-BY 28,677,
-CC-BY-SA 314, software 111, other-open 11); Archive B 1,818 (826 CC0/public-domain full +
-992 metadata-only); Archive C 486 (CC-BY-NC 367, CC-BY-NC-SA 119).
+Counts (2026-08-04 export, 31,417 records) — types: fully open 29,939 (CC-BY 28,677,
+CC-BY-SA 314, CC0 822, software 111, other-open/pd 15); non-commercial 486;
+non-derivative 533; restricted/undetermined 459. Archives: A 29,113; B 1,818
+(826 CC0/public-domain full + 992 metadata-only); C 29,599 (29,113 CC-BY set + 486
+non-commercial).
 
-Zenodo DOIs (add once minted): Archive A `10.5281/zenodo.21401531`; Archive B `TBD`;
-Archive C `TBD`. Link each tier to its archive DOI on the docs.posters.science license
-page and the Behind the Scenes section.
+### Zenodo records (fill in when uploaded)
+
+- Archive A — CC-BY: `10.5281/zenodo.21401531`
+- Archive B — CC0 + exclusion metadata: `TBD`
+- Archive C — Non-commercial: `TBD`
+
+Once minted, link each license type to its archive DOI on the docs.posters.science
+license page and the Behind the Scenes section.
