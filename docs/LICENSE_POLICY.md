@@ -123,40 +123,48 @@ deposited as **three license-separated archives**.
   README; derivatives must be shared under the same license. Software copyleft (GPL/LGPL)
   carries the same kind of obligation.
 
-### The three Zenodo deposits (a restriction ladder)
+### The three Zenodo deposits
 
-The database is deposited as three records on a restriction ladder. Each deposit
-is licensed more restrictively than the last, and the more open licenses (CC0,
-CC-BY) ride into every tier because they are usable under any terms. This gives a
-reuser a single bundle whose deposit license actually matches all of its content.
+The database is deposited as three license-separated records. **Every deposit contains
+the complete database, all 31,417 poster records.** What differs is which posters carry
+the full extracted poster content; posters outside a deposit's license tier are included
+as metadata only. The CC-BY posters ride into every deposit, since attribution-only terms
+are compatible with each tier.
 
-| Deposit (Zenodo license) | Contents | Records |
-|--------------------------|----------|---------|
-| **1. Full, with notes** (CC-BY-4.0) | Every poster, all licenses. Content per the extraction policy above (open and non-commercial posters full; no-derivative and restricted metadata-only). Per-poster license documented. | 31,417 |
-| **2. Non-commercial** (CC-BY-NC-4.0) | Everything usable non-commercially: CC0 + CC-BY set + CC-BY-NC, full content | 30,425 |
-| **3. Non-commercial, no-derivatives** (CC-BY-NC-ND-4.0) | Deposit 2 plus the no-derivatives posters (CC-BY-ND, CC-BY-NC-ND) as metadata-only | 30,958 |
+| Deposit (Zenodo license) | Full content for | Full | Metadata only |
+|--------------------------|------------------|------|---------------|
+| **1. CC-BY** (CC-BY-4.0) | CC-BY set: CC-BY 2.0-4.0, CC-BY-SA, OSI software, other-open | 29,113 | 2,304 |
+| **2. CC0** (CC-BY-4.0) | CC0 and public domain + the CC-BY set | 29,939 | 1,478 |
+| **3. CC-BY-NC** (CC-BY-NC-4.0) | CC-BY-NC and CC-BY-NC-SA + the CC-BY set | 29,599 | 1,818 |
 
+- **Full metadata for every poster is in all three deposits.** Repository deposit metadata
+  is openly licensed (CC0 on Zenodo and Figshare) regardless of the poster's own license,
+  so the complete metadata set can ship in each deposit without any license issue.
 - **The per-poster `rightsList` is authoritative.** The deposit-level Zenodo license is the
-  most restrictive license present in that deposit; each poster keeps its own license, so
-  the CC0 and CC-BY posters remain more permissive within deposits 2 and 3.
-- **No-derivatives (ND) is always metadata-only**, in every deposit: our extracted content
-  is a derivative work, which an ND license forbids redistributing. Deposit 3 includes the
-  ND posters only as metadata so a no-derivatives catalog still has every compatible poster.
-- **Deposit 1 is the verbatim full database** presented at BOSC CoFest, with the license
-  notes above added to its description. Deposits 2 and 3 are the license-clean tiers,
-  separating the non-commercial and no-derivatives posters as the team agreed.
+  most restrictive license among the posters whose *content* is included; each poster keeps
+  its own license, so CC0 posters in deposit 2 remain CC0 and CC-BY posters in deposit 3
+  remain CC-BY.
+- **Deposit 2 is labelled CC-BY-4.0, not CC0**, because it mixes CC0 posters (no
+  conditions) with CC-BY posters (attribution required); the deposit must carry the more
+  restrictive of the two.
+- **No-derivatives (ND) and restricted posters are metadata only in every deposit** (992
+  records): our extracted content is a derivative work, which those licenses do not permit
+  redistributing.
+- Metadata-only records carry one of two flags so a consumer knows why: `_license_blocked`
+  (the poster's own license forbids derivative redistribution, everywhere) or
+  `_content_excluded_from_archive` (openly licensed, but outside this deposit's tier; its
+  content is in the companion deposit).
 
-Counts (2026-08-04 export, 31,417 records) — license types: fully open 29,939 (CC-BY
-28,677, CC-BY-SA 314, CC0 822, software 111, other-open/pd 15); non-commercial 486;
-no-derivative 533; restricted/undetermined 459. Deposit 2: 30,425 (CC-BY set 29,113 +
-CC0 826 + non-commercial 486), all full content. Deposit 3: 30,958 (deposit 2 + 533
-no-derivatives as metadata).
+Counts (2026-08-04 export, 31,417 records) — license types: CC-BY set 29,113 (CC-BY
+28,677, CC-BY-SA 314, software 111, other-open 11); CC0 and public domain 826;
+non-commercial 486 (CC-BY-NC 367, CC-BY-NC-SA 119); no-derivative 533;
+restricted/undetermined 459.
 
 ### Zenodo records (fill in when uploaded)
 
-- Deposit 1 — Full: `10.5281/zenodo.21401531`
-- Deposit 2 — Non-commercial (CC-BY-NC): `TBD`
-- Deposit 3 — Non-commercial no-derivatives (CC-BY-NC-ND): `TBD`
+- Deposit 1 — CC-BY: `10.5281/zenodo.21401531`
+- Deposit 2 — CC0: `TBD`
+- Deposit 3 — CC-BY-NC: `TBD`
 
 Once minted, link each tier to its Zenodo DOI on the docs.posters.science license page
 and the Behind the Scenes section.
