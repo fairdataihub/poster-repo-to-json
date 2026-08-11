@@ -20,8 +20,19 @@ These licenses explicitly permit derivative works. Extracted poster content is *
 | CC Attribution-NonCommercial | CC-BY-NC-4.0, CC-BY-NC-3.0, CC-BY-NC-2.5, CC-BY-NC-2.0 |
 | CC Attribution-NonCommercial-ShareAlike | CC-BY-NC-SA-4.0, CC-BY-NC-SA-3.0, CC-BY-NC-SA-2.5, CC-BY-NC-SA-2.0 |
 | Software (permissive) | MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, Unlicense, MPL-2.0 |
-| Software (copyleft) | GPL-3.0, GPL-2.0, LGPL-3.0, LGPL-2.1 |
-| Zenodo non-SPDX | other-open, other-pd |
+| Software (copyleft) † | GPL-3.0, GPL-2.0, LGPL-3.0, LGPL-2.1, AGPL, RPL |
+| Zenodo non-SPDX | other-open ‡, other-pd |
+
+† **Copyleft licenses permit extraction but constrain redistribution.** GPL and friends
+allow derivative works, so extraction is legitimate, but they require the derivative to be
+distributed under the *same* license. Since we do not mint a GPL-licensed deposit, copyleft
+posters are **metadata-only in every published deposit**. See
+[Redistribution compatibility](#redistribution-compatibility).
+
+‡ `other-open` means "an open license Zenodo does not enumerate" — the specific terms are
+unknown, so it could be ShareAlike or copyleft. It is safe to extract but **cannot be
+certified compatible with any deposit license**, so it is held for review rather than
+placed in a bucket.
 
 ## Blocked Licenses (blocklist)
 
@@ -31,10 +42,18 @@ the poster file; only repository metadata is retained.
 | Category | Licenses | Reason |
 |----------|----------|--------|
 | No-Derivatives | CC-BY-ND-\*, CC-BY-NC-ND-\* (all versions) | ND explicitly prohibits derivative works |
-| Restrictive | All Rights Reserved, In Copyright | No redistribution permitted |
-| Unresolved | Copyright not evaluated, Copyright undetermined | Cannot confirm permission |
-| Unknown terms | other-at, other-closed, other-nc, other | No defined license terms to evaluate |
+| Restrictive | All Rights Reserved, In Copyright (incl. "Educational Use Permitted" and "Rights-Holder(s) Unlocatable or Unidentifiable") | No redistribution permitted |
+| Unresolved | Copyright not evaluated, Copyright undetermined, notspecified | Cannot confirm permission |
+| Unknown terms | other-at, other-closed, other-nc, other, other-open, EU-EMI | No defined license terms to evaluate |
+| Read-only grants | zenodo-freetoread-1.0 | Grants reading only; no derivative or redistribution right |
 | Empty/null | (missing rightsList) | Cannot confirm permission; assume restrictive |
+| Not a license | Grant codes, project titles, contact text found in the rights field | Depositor metadata error; treated as "no license" |
+
+**Metadata-only for redistribution (a separate reason).** Copyleft licenses (GPL-2.0/3.0,
+GPL-3.0-or-later, LGPL, AGPL, RPL) are *not* blocked from extraction — they permit
+derivative works. They are metadata-only in our published deposits because they require the
+derivative to stay under the same license and we mint no copyleft deposit. See
+[Redistribution compatibility](#redistribution-compatibility).
 
 ## What is and is not included
 
@@ -98,77 +117,105 @@ case/spacing/punctuation + resolve aliases to canonical SPDX ids) before matchin
 already-built corpus (idempotent), and `restore_blocked_content.py` re-attaches content to
 records that a stricter/older classifier wrongly stripped but are now allowed.
 
-## License types and the three Zenodo archives
+## Redistribution compatibility
 
-The extraction rule above is **binary**: a license either permits deriving content
-(kept) or does not (metadata-only). Redistribution needs the finer split below. Each
-poster falls into one of **four license types**, and the openly-processed posters are
-deposited as **three license-separated archives**.
+The extraction rule above is **binary**: a license either permits deriving content (kept)
+or does not (metadata-only). Publishing the corpus needs a second, finer rule, because a
+deposit's license is an *offer to the downloader*. If a bundle labelled CC-BY-4.0 contains
+work whose own license forbids those terms, the offer is misleading and invites downstream
+infringement. So **every deposit must carry a license that all of its content can
+legitimately be offered under.**
 
-### License types
+The governing question for each license is: *may an adaptation be released under different
+terms?*
 
-| Type | Licenses | Content | Commercial | Derivatives |
-|------|----------|---------|------------|-------------|
-| **Fully open** | CC-BY (2.0-4.0), CC-BY-SA, CC0-1.0, other-open, other-pd, OSI software (MIT, Apache-2.0, GPL-2.0/3.0, LGPL, BSD, ISC, MPL, Unlicense) | kept | yes | yes |
-| **Non-commercial** | CC-BY-NC, CC-BY-NC-SA | kept | **no** | yes |
-| **Non-derivative** | CC-BY-ND, CC-BY-NC-ND | **metadata only** | n/a | **no** |
-| **Restricted / undetermined** | In Copyright, All Rights Reserved, Copyright not evaluated/undetermined, other-at/closed/nc, unlicensed/null | **metadata only** | no | no |
+| Family | Adaptation may be relicensed? | Consequence |
+|--------|-------------------------------|-------------|
+| **Public domain** — CC0-1.0, CC-PDDC, other-pd, ODC-PDDL | Yes, no conditions | Compatible with every deposit |
+| **Attribution-only** — CC-BY 1.0-4.0 (incl. ported, e.g. 3.0-US) | Yes, attribution preserved | Ship under CC-BY-4.0 |
+| **Permissive software** — MIT, BSD-2/3-Clause, ISC, Apache-2.0, MPL-2.0 | Yes, notices retained | Ship under CC-BY-4.0 (see note) |
+| **ShareAlike** — CC-BY-SA | **No** — same or later license with the same elements | Needs its own CC-BY-SA-4.0 deposit |
+| **NonCommercial** — CC-BY-NC | Yes, within NC terms | Ship under CC-BY-NC-4.0 |
+| **NonCommercial + ShareAlike** — CC-BY-NC-SA | **No** | Needs its own CC-BY-NC-SA-4.0 deposit |
+| **Copyleft** — GPL, LGPL, AGPL, RPL | **No** — must stay under the same license | Metadata-only (we mint no copyleft deposit) |
+| **No-derivatives** — CC-BY-ND, CC-BY-NC-ND | **No derivative at all** | Metadata-only, always |
+| **Restricted / unknown** — In Copyright, ARR, undetermined, other-at/closed/nc, other-open, unlicensed | Cannot confirm | Metadata-only |
 
-- **Non-commercial** is its own type: the content is kept, but reuse is limited to
-  non-commercial purposes.
-- **Non-derivative (ND)** is its own type: ND forbids derivative works, so ND posters are
-  **always metadata-only**, never full content, in every archive, even though extraction
-  would otherwise be permitted for some of them.
-- Share-alike (CC-BY-SA, CC-BY-NC-SA) is kept within its type but flagged in the archive
-  README; derivatives must be shared under the same license. Software copyleft (GPL/LGPL)
-  carries the same kind of obligation.
+Rule of thumb: **permissive licenses relicense; copyleft and ShareAlike do not.**
 
-### The three Zenodo deposits (nested license tiers)
+Notes on the individual cases:
 
-The database is deposited as three records forming **nested license tiers**. Every
-deposit contains **the complete database: all 31,417 poster records with full
-metadata**, and every deposit applies **the same exclusion list** (the block list above).
-What differs is which posters *also* carry the extracted poster content, each tier
-adding one license on top of the previous:
+- **Permissive software licenses in a CC-BY deposit are acceptable** because MIT, BSD and
+  Apache-2.0 expressly allow redistribution and sublicensing under other terms, conditioned
+  on retaining the original copyright and permission notice (Apache-2.0 adds: include the
+  license, keep `NOTICE`, state changes). Each record keeps its own `rightsList`, and each
+  deposit README states that the per-record license governs, which satisfies that condition.
+- **ShareAlike version upgrades are allowed.** CC-BY-SA-2.0 §4(b) permits derivatives under
+  "a later version of this License with the same License Elements", so BY-SA 2.0 and 4.0
+  share one BY-SA-4.0 deposit. The same holds for CC-BY-NC-SA-2.0.
+- **1.0 ShareAlike licenses do not upgrade.** The 1.0 generation lacks the later-version
+  clause, so CC-BY-NC-SA-1.0 cannot be offered under NC-SA-4.0. With only a handful of such
+  records, they are kept metadata-only rather than given a separate deposit.
+- **Copyleft is a redistribution limit, not an extraction limit.** GPL permits derivative
+  works; it just requires them to stay GPL. We do not mint a GPL-licensed deposit, so those
+  posters are metadata-only in everything we publish.
 
-| Deposit (Zenodo license) | Content for | With content | Metadata only |
-|--------------------------|-------------|--------------|---------------|
-| **1. CC0** (CC0-1.0) | CC0 and public domain | 826 | 30,591 |
-| **2. CC-BY** (CC-BY-4.0) | tier 1 + CC-BY (incl. CC-BY-SA, OSI software, other-open) | 29,939 | 1,478 |
-| **3. CC-BY-NC** (CC-BY-NC-4.0) | tier 2 + CC-BY-NC (incl. CC-BY-NC-SA) | 30,425 | 992 |
+## The Zenodo deposits
 
-CC0 content is in every tier (it carries no conditions, so it is compatible with any
-deposit license) and CC-BY content is in tiers 2 and 3. **Deposit 3 is the complete
-deposit: it carries content for every poster whose license permits it.**
+The corpus is published as **five license-separated deposits**. Each poster appears in
+exactly one, chosen by its own license; posters whose license forbids redistributing
+derivatives appear as **metadata only**.
 
-- **Full metadata for every poster ships in all three deposits.** Repository deposit
-  metadata is openly licensed (CC0 on Zenodo and Figshare) regardless of the poster's own
-  license, so the complete metadata set can be included everywhere without any license
-  issue.
-- **The per-poster `rightsList` is authoritative.** The deposit-level Zenodo license is
-  the most restrictive license among the posters whose *content* is included; each poster
-  keeps its own license, so the CC0 and CC-BY posters inside tier 3 remain CC0 and CC-BY.
-- **The block list is identical in all three deposits** (992 records): no-derivatives
-  (CC-BY-ND, CC-BY-NC-ND), In Copyright, all rights reserved, undetermined and unlicensed
-  posters are metadata only everywhere, because the extracted content is a derivative work
-  their license does not permit redistributing.
-- **Tier 1 carries CC0 content alone** because it is the only tier whose deposit license
-  can be CC0: including any poster that requires attribution would make a CC0 label
-  incorrect. The CC-BY posters' content starts at tier 2.
-- Metadata-only records carry one of two flags so a consumer knows why:
-  `_license_blocked` (block list, everywhere) or `_content_excluded_from_archive`
-  (openly licensed, but above this deposit's tier; its content is in a higher tier).
+| Deposit (Zenodo license) | Content for | Notes |
+|--------------------------|-------------|-------|
+| **1. CC0-1.0** | CC0-1.0, CC-PDDC, other-pd, ODC-PDDL | Also carries **all metadata-only records** (block list + copyleft + review), since repository deposit metadata is CC0 regardless of the poster's own license |
+| **2. CC-BY-4.0** | CC-BY 4.0 / 3.0 / 3.0-US / 2.0, MIT, Apache-2.0, BSD | Permissive only; no ShareAlike, no copyleft |
+| **3. CC-BY-SA-4.0** | CC-BY-SA-4.0, CC-BY-SA-2.0 | ShareAlike obligation carries to derivatives |
+| **4. CC-BY-NC-4.0** | CC-BY-NC 4.0 / 3.0 / 1.0 | Non-commercial reuse only |
+| **5. CC-BY-NC-SA-4.0** | CC-BY-NC-SA-4.0, CC-BY-NC-SA-2.0 | Non-commercial **and** ShareAlike |
 
-Counts (2026-08-04 export, 31,417 records) — license groups: CC0 and public domain 826;
-CC-BY set 29,113 (CC-BY 28,677, CC-BY-SA 314, software 111, other-open 11);
-non-commercial 486 (CC-BY-NC 367, CC-BY-NC-SA 119); block list 992 (no-derivatives 533,
-restricted/undetermined 459).
+- **The per-poster `rightsList` is authoritative.** The deposit-level license is the most
+  restrictive license among the content in that deposit; individual posters keep their own,
+  so a CC0 poster inside the CC-BY deposit remains CC0.
+- **Metadata-only records keep** all repository deposit metadata (identifiers, creators with
+  affiliations and ORCID/ROR, titles, dates, publisher, subjects, funding, conference,
+  rightsList, language) and the deposit abstract. They lose the poster-derived fields
+  (`content`, `imageCaptions`, `tableCaptions`, `researchField`, `domain`) and **carry no
+  thumbnail**.
+
+### Excluded from all content deposits (metadata only)
+
+| Category | Examples | Reason |
+|----------|----------|--------|
+| No-derivatives | CC-BY-ND, CC-BY-NC-ND (all versions) | ND forbids derivative works |
+| Copyleft | GPL-2.0/3.0, GPL-3.0-or-later, LGPL, AGPL, RPL-1.5 | Derivatives must stay under the same license |
+| Restricted | In Copyright (incl. "Educational Use Permitted" and "Rights-Holder Unlocatable" variants), All Rights Reserved | No redistribution right |
+| Unresolved | Copyright not evaluated, Copyright undetermined, notspecified | Cannot confirm permission |
+| Unknown terms | other-at, other-closed, other-nc, other-open, EU-EMI | Terms not determinable |
+| Read-only grants | zenodo-freetoread-1.0 | Grants reading only, no derivative or redistribution right |
+| Missing | no license / null | Default-deny |
+
+### Review queue
+
+Licenses that resolve to none of the above are held for manual review before being placed
+in a deposit. Current dispositions:
+
+| Value | Disposition |
+|-------|-------------|
+| `ODC-PDDL` | Public domain → CC0 deposit |
+| `AFL-3.0`, `Etalab-2.0`, `ODC-BY` | Permissive / attribution-only → eligible for the CC-BY-4.0 deposit |
+| `RPL-1.5` | Reciprocal copyleft → metadata only |
+| `CC-NC` | Ambiguous: NonCommercial with no version or attribution element. Needs a team decision or depositor contact; metadata-only until resolved |
+| `zenodo-freetoread-1.0`, `notspecified`, `EU-EMI` | Metadata only |
+| `ICEA, IST-027819-IP` and other free-text values | **Not licenses.** These are grant codes, project titles, or contact messages placed in the rights field by the depositor. Treated as "no license" (metadata only) and worth reporting upstream as bad deposit metadata |
 
 ### Zenodo records (fill in when uploaded)
 
 - Deposit 1 — CC0: `TBD`
 - Deposit 2 — CC-BY: `TBD`
-- Deposit 3 — CC-BY-NC (complete): `10.5281/zenodo.21401531`
+- Deposit 3 — CC-BY-SA: `TBD`
+- Deposit 4 — CC-BY-NC: `TBD`
+- Deposit 5 — CC-BY-NC-SA: `TBD`
 
-Once minted, link each tier to its Zenodo DOI on the docs.posters.science license page
-and the Behind the Scenes section.
+Once minted, link each tier to its Zenodo DOI here and on the docs.posters.science
+auto-registration page.
