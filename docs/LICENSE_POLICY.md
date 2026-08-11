@@ -182,6 +182,18 @@ derivatives appear as **metadata only**.
   rightsList, language) and the deposit abstract. They lose the poster-derived fields
   (`content`, `imageCaptions`, `tableCaptions`, `researchField`, `domain`) and **carry no
   thumbnail**.
+- **All metadata-only records live in the CC0 deposit**, whatever the poster's own license.
+  A content-stripped record carries no licensed content, only CC0 deposit metadata, so it
+  has no licensing constraint to honour. Keeping them in one place means a single placement
+  rule and makes the CC0 deposit **the complete index**: one metadata record for every
+  poster in the corpus.
+- **Cross-reference instead of scattering.** So that a reader browsing one license tier can
+  still find the posters we could not include, each deposit README carries a pointer:
+
+  > Additional CC-BY-NC-SA posters exist in this collection whose content could not be
+  > included. Their metadata records are in the CC0 deposit: `<CC0 DOI>`.
+
+  Placement stays uniform; discoverability comes from the link.
 
 ### Excluded from all content deposits (metadata only)
 
@@ -209,13 +221,22 @@ in a deposit. Current dispositions:
 | `zenodo-freetoread-1.0`, `notspecified`, `EU-EMI` | Metadata only |
 | `ICEA, IST-027819-IP` and other free-text values | **Not licenses.** These are grant codes, project titles, or contact messages placed in the rights field by the depositor. Treated as "no license" (metadata only) and worth reporting upstream as bad deposit metadata |
 
-### Zenodo records (fill in when uploaded)
+### Zenodo records
 
-- Deposit 1 — CC0: `TBD`
-- Deposit 2 — CC-BY: `TBD`
-- Deposit 3 — CC-BY-SA: `TBD`
-- Deposit 4 — CC-BY-NC: `TBD`
-- Deposit 5 — CC-BY-NC-SA: `TBD`
+DOIs are minted at deposit time. Fill these in and the table will be the single source for
+every other reference.
 
-Once minted, link each tier to its Zenodo DOI here and on the docs.posters.science
-auto-registration page.
+| Deposit | Zenodo DOI |
+|---------|------------|
+| CC0 | `<!-- DOI:CC0 -->` |
+| CC-BY | `<!-- DOI:CC-BY -->` |
+| CC-BY-SA | `<!-- DOI:CC-BY-SA -->` |
+| CC-BY-NC | `<!-- DOI:CC-BY-NC -->` |
+| CC-BY-NC-SA | `<!-- DOI:CC-BY-NC-SA -->` |
+
+When the DOIs are available, update in three places:
+
+1. this table,
+2. the cross-reference line in each deposit README (the `<CC0 DOI>` pointer above),
+3. the archive table on the docs.posters.science
+   [auto-registration page](https://docs.posters.science/docs/auto-registration).
