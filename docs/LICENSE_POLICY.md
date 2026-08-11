@@ -168,11 +168,14 @@ derivatives appear as **metadata only**.
 
 | Deposit (Zenodo license) | Content for | Notes |
 |--------------------------|-------------|-------|
-| **1. CC0-1.0** | CC0-1.0, CC-PDDC, other-pd, ODC-PDDL | Also carries **all metadata-only records** (block list + copyleft + review), since repository deposit metadata is CC0 regardless of the poster's own license |
+| **1. CC0-1.0** | CC0-1.0, CC-PDDC, other-pd, ODC-PDDL | Plus the **block-list and copyleft metadata-only records**, whose licenses have no deposit of their own |
 | **2. CC-BY-4.0** | CC-BY 4.0 / 3.0 / 3.0-US / 2.0, MIT, Apache-2.0, BSD | Permissive only; no ShareAlike, no copyleft |
 | **3. CC-BY-SA-4.0** | CC-BY-SA-4.0, CC-BY-SA-2.0 | ShareAlike obligation carries to derivatives |
 | **4. CC-BY-NC-4.0** | CC-BY-NC 4.0 / 3.0 / 1.0 | Non-commercial reuse only |
 | **5. CC-BY-NC-SA-4.0** | CC-BY-NC-SA-4.0, CC-BY-NC-SA-2.0 | Non-commercial **and** ShareAlike |
+
+Deposits 2 to 5 each contain every poster under that license family, whether or not we hold
+its content. Only licenses with no deposit of their own fall through to CC0.
 
 - **The per-poster `rightsList` is authoritative.** The deposit-level license is the most
   restrictive license among the content in that deposit; individual posters keep their own,
@@ -182,18 +185,15 @@ derivatives appear as **metadata only**.
   rightsList, language) and the deposit abstract. They lose the poster-derived fields
   (`content`, `imageCaptions`, `tableCaptions`, `researchField`, `domain`) and **carry no
   thumbnail**.
-- **All metadata-only records live in the CC0 deposit**, whatever the poster's own license.
-  A content-stripped record carries no licensed content, only CC0 deposit metadata, so it
-  has no licensing constraint to honour. Keeping them in one place means a single placement
-  rule and makes the CC0 deposit **the complete index**: one metadata record for every
-  poster in the corpus.
-- **Cross-reference instead of scattering.** So that a reader browsing one license tier can
-  still find the posters we could not include, each deposit README carries a pointer:
-
-  > Additional CC-BY-NC-SA posters exist in this collection whose content could not be
-  > included. Their metadata records are in the CC0 deposit: `<CC0 DOI>`.
-
-  Placement stays uniform; discoverability comes from the link.
+- **Every poster appears in exactly one deposit — no record is duplicated.** A poster is
+  placed by its own license, and it carries full content where we have it or metadata only
+  where we do not. A CC-BY poster whose content is missing therefore stays in the CC-BY
+  deposit as a metadata-only record; it does not move.
+- **The CC0 deposit is the exception, and only for licenses that have no deposit of their
+  own.** It holds the public-domain posters with content, plus the metadata-only records
+  for the block list (no-derivatives, restricted, unresolved, unknown terms, missing) and
+  for copyleft. Those licenses get no content deposit anywhere, so their metadata rides
+  under CC0, which is the correct license for repository deposit metadata.
 
 ### Excluded from all content deposits (metadata only)
 
@@ -237,6 +237,6 @@ every other reference.
 When the DOIs are available, update in three places:
 
 1. this table,
-2. the cross-reference line in each deposit README (the `<CC0 DOI>` pointer above),
+2. each deposit's README,
 3. the archive table on the docs.posters.science
    [auto-registration page](https://docs.posters.science/docs/auto-registration).
