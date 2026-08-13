@@ -20,16 +20,16 @@ These licenses explicitly permit derivative works. Extracted poster content is *
 | CC Attribution-NonCommercial | CC-BY-NC-4.0, CC-BY-NC-3.0, CC-BY-NC-2.5, CC-BY-NC-2.0 |
 | CC Attribution-NonCommercial-ShareAlike | CC-BY-NC-SA-4.0, CC-BY-NC-SA-3.0, CC-BY-NC-SA-2.5, CC-BY-NC-SA-2.0 |
 | Software (permissive) | MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, Unlicense, MPL-2.0 |
-| Software (copyleft) † | GPL-3.0, GPL-2.0, LGPL-3.0, LGPL-2.1, AGPL, RPL |
-| Zenodo non-SPDX | other-open ‡, other-pd |
+| Software (copyleft) [1] | GPL-3.0, GPL-2.0, LGPL-3.0, LGPL-2.1, AGPL, RPL |
+| Zenodo non-SPDX | other-open [2], other-pd |
 
-† **Copyleft licenses permit extraction but constrain redistribution.** GPL and friends
+[1] **Copyleft licenses permit extraction but constrain redistribution.** GPL and friends
 allow derivative works, so extraction is legitimate, but they require the derivative to be
 distributed under the *same* license. Since we do not mint a GPL-licensed deposit, copyleft
 posters are **metadata-only in every published deposit**. See
 [Redistribution compatibility](#redistribution-compatibility).
 
-‡ `other-open` means "an open license Zenodo does not enumerate" — the specific terms are
+[2] `other-open` means "an open license Zenodo does not enumerate". The specific terms are
 unknown, so it could be ShareAlike or copyleft. It is safe to extract but **cannot be
 certified compatible with any deposit license**, so it is held for review rather than
 placed in a bucket.
@@ -50,14 +50,14 @@ the poster file; only repository metadata is retained.
 | Not a license | Grant codes, project titles, contact text found in the rights field | Depositor metadata error; treated as "no license" |
 
 **Metadata-only for redistribution (a separate reason).** Copyleft licenses (GPL-2.0/3.0,
-GPL-3.0-or-later, LGPL, AGPL, RPL) are *not* blocked from extraction — they permit
+GPL-3.0-or-later, LGPL, AGPL, RPL) are *not* blocked from extraction, they permit
 derivative works. They are metadata-only in our published deposits because they require the
 derivative to stay under the same license and we mint no copyleft deposit. See
 [Redistribution compatibility](#redistribution-compatibility).
 
 ## What is and is not included
 
-When a poster's license is blocked, **nothing is extracted from the poster file** — the
+When a poster's license is blocked, **nothing is extracted from the poster file**, the
 poster is not run through poster2JSON at all, so there is no poster content, no
 poster-derived metadata, and no thumbnail. We only use the repository-provided deposition
 metadata to index the poster, and only when that metadata is itself openly accessible
@@ -89,8 +89,8 @@ Zenodo and Figshare), never from the poster file:
 
 ## New or unlisted licenses
 
-Any license that appears in **neither** list above — including a poster with **no license**
-or an **unrecognized license string** — is **treated as blocked by default**. Such a poster
+Any license that appears in **neither** list above, including a poster with **no license**
+or an **unrecognized license string**, is **treated as blocked by default**. Such a poster
 is indexed with repository deposition metadata only (no poster content, no thumbnail),
 exactly like any other blocked poster.
 
@@ -101,7 +101,7 @@ list. The default-blocked stance holds until that review is complete.
 ## Pipeline integration
 
 License enforcement is a **default step of the pipeline itself**: every merged record is
-classified and, if its license is not open (blocked, or unknown/unlisted → default-deny),
+classified and, if its license is not open (blocked, or unknown/unlisted -> default-deny),
 its poster-derived content is stripped and `_license_blocked` is set. This runs inside
 `MetadataMerger.merge` (`poster_to_json.merger`) via `enforce_license`, so no poster leaves
 the merge step with content it is not licensed to redistribute. It can be disabled only by
@@ -131,15 +131,15 @@ terms?*
 
 | Family | Adaptation may be relicensed? | Consequence |
 |--------|-------------------------------|-------------|
-| **Public domain** — CC0-1.0, CC-PDDC, other-pd, ODC-PDDL | Yes, no conditions | Compatible with every deposit |
-| **Attribution-only** — CC-BY 1.0-4.0 (incl. ported, e.g. 3.0-US) | Yes, attribution preserved | Ship under CC-BY-4.0 |
-| **Permissive software** — MIT, BSD-2/3-Clause, ISC, Apache-2.0, MPL-2.0 | Yes, notices retained | Ship under CC-BY-4.0 (see note) |
-| **ShareAlike** — CC-BY-SA | **No** — same or later license with the same elements | Needs its own CC-BY-SA-4.0 deposit |
-| **NonCommercial** — CC-BY-NC | Yes, within NC terms | Ship under CC-BY-NC-4.0 |
-| **NonCommercial + ShareAlike** — CC-BY-NC-SA | **No** | Needs its own CC-BY-NC-SA-4.0 deposit |
-| **Copyleft** — GPL, LGPL, AGPL, RPL | **No** — must stay under the same license | Metadata-only (we mint no copyleft deposit) |
-| **No-derivatives** — CC-BY-ND, CC-BY-NC-ND | **No derivative at all** | Metadata-only, always |
-| **Restricted / unknown** — In Copyright, ARR, undetermined, other-at/closed/nc, other-open, unlicensed | Cannot confirm | Metadata-only |
+| **Public domain**: CC0-1.0, CC-PDDC, other-pd, ODC-PDDL | Yes, no conditions | Compatible with every deposit |
+| **Attribution-only**: CC-BY 1.0-4.0 (incl. ported, e.g. 3.0-US) | Yes, attribution preserved | Ship under CC-BY-4.0 |
+| **Permissive software**: MIT, BSD-2/3-Clause, ISC, Apache-2.0, MPL-2.0 | Yes, notices retained | Ship under CC-BY-4.0 (see note) |
+| **ShareAlike**: CC-BY-SA | **No**: same or later license with the same elements | Needs its own CC-BY-SA-4.0 deposit |
+| **NonCommercial**: CC-BY-NC | Yes, within NC terms | Ship under CC-BY-NC-4.0 |
+| **NonCommercial + ShareAlike**: CC-BY-NC-SA | **No** | Needs its own CC-BY-NC-SA-4.0 deposit |
+| **Copyleft**: GPL, LGPL, AGPL, RPL | **No**: must stay under the same license | Metadata-only (we mint no copyleft deposit) |
+| **No-derivatives**: CC-BY-ND, CC-BY-NC-ND | **No derivative at all** | Metadata-only, always |
+| **Restricted / unknown**: In Copyright, ARR, undetermined, other-at/closed/nc, other-open, unlicensed | Cannot confirm | Metadata-only |
 
 Rule of thumb: **permissive licenses relicense; copyleft and ShareAlike do not.**
 
@@ -150,7 +150,7 @@ Notes on the individual cases:
   on retaining the original copyright and permission notice (Apache-2.0 adds: include the
   license, keep `NOTICE`, state changes). Each record keeps its own `rightsList`, and each
   deposit README states that the per-record license governs, which satisfies that condition.
-- **ShareAlike version upgrades are allowed.** CC-BY-SA-2.0 §4(b) permits derivatives under
+- **ShareAlike version upgrades are allowed.** CC-BY-SA-2.0 section 4(b) permits derivatives under
   "a later version of this License with the same License Elements", so BY-SA 2.0 and 4.0
   share one BY-SA-4.0 deposit. The same holds for CC-BY-NC-SA-2.0.
 - **1.0 ShareAlike licenses do not upgrade.** The 1.0 generation lacks the later-version
@@ -185,7 +185,7 @@ its content. Only licenses with no deposit of their own fall through to CC0.
   rightsList, language) and the deposit abstract. They lose the poster-derived fields
   (`content`, `imageCaptions`, `tableCaptions`, `researchField`, `domain`) and **carry no
   thumbnail**.
-- **Every poster appears in exactly one deposit — no record is duplicated.** A poster is
+- **Every poster appears in exactly one deposit, no record is duplicated.** A poster is
   placed by its own license, and it carries full content where we have it or metadata only
   where we do not. A CC-BY poster whose content is missing therefore stays in the CC-BY
   deposit as a metadata-only record; it does not move.
@@ -214,9 +214,9 @@ in a deposit. Current dispositions:
 
 | Value | Disposition |
 |-------|-------------|
-| `ODC-PDDL` | Public domain → CC0 deposit |
-| `AFL-3.0`, `Etalab-2.0`, `ODC-BY` | Permissive / attribution-only → eligible for the CC-BY-4.0 deposit |
-| `RPL-1.5` | Reciprocal copyleft → metadata only |
+| `ODC-PDDL` | Public domain -> CC0 deposit |
+| `AFL-3.0`, `Etalab-2.0`, `ODC-BY` | Permissive / attribution-only -> eligible for the CC-BY-4.0 deposit |
+| `RPL-1.5` | Reciprocal copyleft -> metadata only |
 | `CC-NC` | Ambiguous: NonCommercial with no version or attribution element. Needs a team decision or depositor contact; metadata-only until resolved |
 | `zenodo-freetoread-1.0`, `notspecified`, `EU-EMI` | Metadata only |
 | `ICEA, IST-027819-IP` and other free-text values | **Not licenses.** These are grant codes, project titles, or contact messages placed in the rights field by the depositor. Treated as "no license" (metadata only) and worth reporting upstream as bad deposit metadata |

@@ -22,12 +22,12 @@ dev/
 
 ## What each folder contains
 
-- `merged/{zenodo,figshare}/<id>_complete.json` — one poster.json per poster,
+- `merged/{zenodo,figshare}/<id>_complete.json`, one poster.json per poster,
   schema-aligned (`poster_schema.json`) and normalized (publishers, funders,
   affiliations, subjects, conference locations, `researchField`/`domain`).
 - Both runs are **full corpora with blocked posters kept as metadata-only**: a poster
   whose license does not permit redistributing derivatives (blocked, or unknown/unlisted
-  → default-deny) is present but stripped of poster-derived content
+  -> default-deny) is present but stripped of poster-derived content
   (`content`/`imageCaptions`/`tableCaptions`/`researchField`/LLM descriptions) and carries
   `_license_blocked: true`, with no thumbnail. See [LICENSE_POLICY.md](LICENSE_POLICY.md).
 
@@ -35,7 +35,7 @@ dev/
 
 The names are each run's poster date-span, following the platform's
 `<label>_<YYYYMMDD>-<YYYYMMDD>` convention. They are **nominal**: the two runs are
-separate harvest batches of *different* posters, not strict date partitions — their
+separate harvest batches of *different* posters, not strict date partitions, their
 publication dates overlap (the pre-2025 run reaches into 2025; the 2025 run contains some
 older posters). Treat the folders as "run 1 / run 2", not as exclusive date buckets.
 
