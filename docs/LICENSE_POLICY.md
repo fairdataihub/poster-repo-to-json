@@ -166,13 +166,13 @@ The corpus is published as **five license-separated deposits**. Each poster appe
 exactly one, chosen by its own license; posters whose license forbids redistributing
 derivatives appear as **metadata only**.
 
-| Deposit (Zenodo license) | Content for | Notes |
-|--------------------------|-------------|-------|
-| **1. CC0-1.0** | CC0-1.0, CC-PDDC, other-pd, ODC-PDDL | Plus the **block-list and copyleft metadata-only records**, whose licenses have no deposit of their own |
-| **2. CC-BY-4.0** | CC-BY 4.0 / 3.0 / 3.0-US / 2.0, MIT, Apache-2.0, BSD | Permissive only; no ShareAlike, no copyleft |
-| **3. CC-BY-SA-4.0** | CC-BY-SA-4.0, CC-BY-SA-2.0 | ShareAlike obligation carries to derivatives |
-| **4. CC-BY-NC-4.0** | CC-BY-NC 4.0 / 3.0 / 1.0 | Non-commercial reuse only |
-| **5. CC-BY-NC-SA-4.0** | CC-BY-NC-SA-4.0, CC-BY-NC-SA-2.0 | Non-commercial **and** ShareAlike |
+| Deposit (Zenodo license) | Content for | DOI |
+|--------------------------|-------------|-----|
+| **1. CC0-1.0** | CC0-1.0, CC-PDDC, other-pd, ODC-PDDL, plus the block-list and copyleft metadata-only records | [10.5281/zenodo.21924695](https://doi.org/10.5281/zenodo.21924695) |
+| **2. CC-BY-4.0** | CC-BY 4.0 / 3.0 / 3.0-US / 2.0, MIT, Apache-2.0, BSD (permissive only) | [10.5281/zenodo.21924848](https://doi.org/10.5281/zenodo.21924848) |
+| **3. CC-BY-SA-4.0** | CC-BY-SA-4.0, CC-BY-SA-2.0 | [10.5281/zenodo.21925147](https://doi.org/10.5281/zenodo.21925147) |
+| **4. CC-BY-NC-4.0** | CC-BY-NC 4.0 / 3.0 / 1.0 | [10.5281/zenodo.21925170](https://doi.org/10.5281/zenodo.21925170) |
+| **5. CC-BY-NC-SA-4.0** | CC-BY-NC-SA-4.0, CC-BY-NC-SA-2.0 | [10.5281/zenodo.21925181](https://doi.org/10.5281/zenodo.21925181) |
 
 Deposits 2 to 5 each contain every poster under that license family, whether or not we hold
 its content. Only licenses with no deposit of their own fall through to CC0.
@@ -223,20 +223,16 @@ in a deposit. Current dispositions:
 
 ### Zenodo records
 
-DOIs are minted at deposit time. Fill these in and the table will be the single source for
-every other reference.
+The five corpora are deposited on Zenodo. Each carries the license its content can
+legitimately be shared under, and every poster appears in exactly one of them.
 
-| Deposit | Zenodo DOI |
-|---------|------------|
-| CC0 | `<!-- DOI:CC0 -->` |
-| CC-BY | `<!-- DOI:CC-BY -->` |
-| CC-BY-SA | `<!-- DOI:CC-BY-SA -->` |
-| CC-BY-NC | `<!-- DOI:CC-BY-NC -->` |
-| CC-BY-NC-SA | `<!-- DOI:CC-BY-NC-SA -->` |
+| Corpus | Zenodo record | DOI |
+|--------|---------------|-----|
+| 1 | Posters.science Poster Corpus 1: CC0 Licensed | [10.5281/zenodo.21924695](https://doi.org/10.5281/zenodo.21924695) |
+| 2 | Posters.science Poster Corpus 2: CC-BY-4.0 Licensed | [10.5281/zenodo.21924848](https://doi.org/10.5281/zenodo.21924848) |
+| 3 | Posters.science Poster Corpus 3: CC-BY-SA 4.0 Licensed | [10.5281/zenodo.21925147](https://doi.org/10.5281/zenodo.21925147) |
+| 4 | Posters.science Poster Corpus 4: CC-BY-NC 4.0 Licensed | [10.5281/zenodo.21925170](https://doi.org/10.5281/zenodo.21925170) |
+| 5 | Posters.science Poster Corpus 5: CC-BY-NC-SA 4.0 Licensed | [10.5281/zenodo.21925181](https://doi.org/10.5281/zenodo.21925181) |
 
-When the DOIs are available, update in three places:
-
-1. this table,
-2. each deposit's README,
-3. the archive table on the docs.posters.science
-   [auto-registration page](https://docs.posters.science/docs/auto-registration).
+The corpora cross-reference each other on Zenodo with the "Is related to" relation, and
+point at the platform documentation with "Is documented by".
