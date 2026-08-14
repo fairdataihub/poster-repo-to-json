@@ -168,7 +168,7 @@ derivatives appear as **metadata only**.
 
 | Deposit (Zenodo license) | Content for | DOI |
 |--------------------------|-------------|-----|
-| **1. CC0-1.0** | CC0-1.0, CC-PDDC, other-pd, ODC-PDDL, plus the block-list and copyleft metadata-only records | [10.5281/zenodo.21924695](https://doi.org/10.5281/zenodo.21924695) |
+| **1. CC0-1.0** | CC0-1.0, CC-PDDC, other-pd, ODC-PDDL, plus the block-list and copyleft metadata-only records | [10.5281/zenodo.21938474](https://doi.org/10.5281/zenodo.21938474) |
 | **2. CC-BY-4.0** | CC-BY 4.0 / 3.0 / 3.0-US / 2.0, MIT, Apache-2.0, BSD (permissive only) | [10.5281/zenodo.21924848](https://doi.org/10.5281/zenodo.21924848) |
 | **3. CC-BY-SA-4.0** | CC-BY-SA-4.0, CC-BY-SA-2.0 | [10.5281/zenodo.21925147](https://doi.org/10.5281/zenodo.21925147) |
 | **4. CC-BY-NC-4.0** | CC-BY-NC 4.0 / 3.0 / 1.0 | [10.5281/zenodo.21925170](https://doi.org/10.5281/zenodo.21925170) |
@@ -228,7 +228,7 @@ legitimately be shared under, and every poster appears in exactly one of them.
 
 | Corpus | Zenodo record | DOI |
 |--------|---------------|-----|
-| 1 | Posters.science Poster Corpus 1: CC0 Licensed | [10.5281/zenodo.21924695](https://doi.org/10.5281/zenodo.21924695) |
+| 1 | Posters.science Poster Corpus 1: CC0 Licensed | [10.5281/zenodo.21938474](https://doi.org/10.5281/zenodo.21938474) |
 | 2 | Posters.science Poster Corpus 2: CC-BY-4.0 Licensed | [10.5281/zenodo.21924848](https://doi.org/10.5281/zenodo.21924848) |
 | 3 | Posters.science Poster Corpus 3: CC-BY-SA 4.0 Licensed | [10.5281/zenodo.21925147](https://doi.org/10.5281/zenodo.21925147) |
 | 4 | Posters.science Poster Corpus 4: CC-BY-NC 4.0 Licensed | [10.5281/zenodo.21925170](https://doi.org/10.5281/zenodo.21925170) |
