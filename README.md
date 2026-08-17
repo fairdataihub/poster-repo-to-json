@@ -2,7 +2,7 @@
 
 > **Part of the Machine-Actionable Scientific Poster Initiative**
 
-Full pipeline for converting scientific posters into machine-actionable JSON. Uses [poster2json](https://github.com/fairdataihub/poster2json) for extraction (pdfalto + Qwen2-VL + Llama 3.1 8B), then enriches with Zenodo/Figshare repository metadata. Output conforms to the [poster-json-schema](https://posters.science/schema/v0.1/poster_schema.json) (DataCite 4.7 with poster extensions).
+Full pipeline for converting scientific posters into machine-actionable JSON. Uses [poster2json](https://github.com/fairdataihub/poster2json) for extraction (pdfplumber + Llama 3.1 8B), then enriches with Zenodo/Figshare repository metadata. Output conforms to the [poster-json-schema](https://posters.science/schema/v0.1/poster_schema.json) (DataCite 4.7 with poster extensions).
 
 **This `staging` branch** contains the refactored, production-hardened pipeline used to process the full Zenodo+Figshare corpus (~24K posters) on a multi-GPU node.
 
@@ -63,13 +63,9 @@ cd ../poster2json && pip install -e .
 ### Prerequisites
 
 - **CUDA GPU** with 16GB+ VRAM (or 6GB+ with 4-bit quantization)
-- **pdfalto** for PDF layout analysis
 
-```bash
-git clone https://github.com/kermitt2/pdfalto.git
-cd pdfalto && mkdir build && cd build && cmake .. && make
-sudo cp pdfalto /usr/local/bin/
-```
+PDF text extraction uses `pdfplumber`, which is installed with the Python dependencies and
+needs no separate system package.
 
 ## Single-Poster Usage
 
@@ -97,8 +93,8 @@ scripts/
 ### Architecture: Two-Phase Extraction
 
 **Phase 1 (CPU+GPU):** Extract raw text from all posters.
-- `pdfalto` for text-based PDFs (fast, CPU-only)
-- Qwen2-VL OCR fallback for image-based PDFs (GPU)
+- `pdfplumber` for text-based PDFs (fast, CPU-only)
+- Vision-model OCR fallback for image-based PDFs (GPU)
 - Raw text cached to disk (`_raw_text/`) so it survives crashes
 
 **Phase 2 (GPU):** Load Llama 3.1 8B once, process all texts sequentially.
@@ -175,7 +171,7 @@ The feature modules (`normalize.py`, `ror.py`, `language.py`) are vendored in `v
 
 ### Stale Error Recovery
 
-If earlier runs had bugs (OOM crashes, broken pdfalto flag, etc.), those stale error JSONs block re-processing. This script removes them if the raw text is cached (Phase 1 succeeded but Phase 2 failed):
+If earlier runs had bugs (OOM crashes, extraction failures, etc.), those stale error JSONs block re-processing. This script removes them if the raw text is cached (Phase 1 succeeded but Phase 2 failed):
 
 ```bash
 python scripts/clean_stale_errors.py
@@ -293,7 +289,7 @@ poster-repo-to-json/
 
 | Package | Purpose |
 |---------|---------|
-| [poster2json](https://github.com/fairdataihub/poster2json) | Core extraction engine (pdfalto + Qwen2-VL + Llama 3.1) |
+| [poster2json](https://github.com/fairdataihub/poster2json) | Core extraction engine (pdfplumber + Llama 3.1) |
 | [poster-repo-scraper](https://github.com/fairdataihub/poster-repo-scraper) | Scrape poster metadata from Zenodo/Figshare |
 | [poster-repo-qc](https://github.com/fairdataihub/poster-repo-qc) | Validate and classify posters with PosterSentry |
 | [poster-json-schema](https://posters.science/schema/v0.1/poster_schema.json) | DataCite 4.6-based schema for scientific posters |
