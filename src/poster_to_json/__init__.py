@@ -11,15 +11,29 @@ Pipeline:
 Output conforms to poster_schema.json (DataCite-based with poster extensions).
 """
 
-__version__ = "0.38.3"
+__version__ = "0.39.0"
 
 from .extractor import PosterExtractor
 from .schema_converter import SchemaConverter, load_bundled_schema
 from .merger import MetadataMerger
+from .version_linking import (
+    VersionFamily,
+    apply_version_info,
+    from_figshare,
+    from_record,
+    from_zenodo,
+    link_families,
+)
 
 __all__ = [
     "PosterExtractor",
     "SchemaConverter",
     "MetadataMerger",
     "load_bundled_schema",
+    "VersionFamily",
+    "apply_version_info",
+    "from_record",
+    "from_zenodo",
+    "from_figshare",
+    "link_families",
 ]

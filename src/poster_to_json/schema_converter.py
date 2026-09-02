@@ -20,6 +20,7 @@ from typing import Dict, List, Optional
 
 from tqdm import tqdm
 
+from . import version_linking
 from .date_normalize import normalize_date_value
 
 logger = logging.getLogger(__name__)
@@ -511,6 +512,13 @@ class SchemaConverter:
             if formats:
                 result["formats"] = list(formats)
 
+        # Repository version family (concept record + relations.version). Sibling
+        # cross-links need the whole corpus, so link_families() fills those in
+        # later; this records the family key and position for a single record.
+        family = version_linking.from_zenodo(record)
+        if family:
+            version_linking.apply_version_info(result, family)
+
         return self._ensure_required_fields(result)
 
     def convert_figshare(self, record: Dict) -> Dict:
@@ -700,6 +708,13 @@ class SchemaConverter:
                         formats.add(ext)
             if formats:
                 result["formats"] = list(formats)
+
+        # Repository version family (article id + .vN DOI). Figshare has no
+        # "is this the latest" flag, so link_families() settles that against the
+        # harvested siblings.
+        family = version_linking.from_figshare(record)
+        if family:
+            version_linking.apply_version_info(result, family)
 
         return self._ensure_required_fields(result)
 

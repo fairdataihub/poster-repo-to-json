@@ -5,6 +5,50 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.0] - 2026-09-02
+
+### Added
+- **Version linking for auto-indexed posters** (`src/poster_to_json/version_linking.py`).
+  Auto-indexing harvests each repository version as its own record, so a poster deposited
+  twice as v1 and v2 appeared in the corpus as two unrelated posters. Every version is still
+  kept; they are now identified as a family and linked. Mirrors the versioning model added to
+  the platform in posters-science PR #49 (`versionRootId` / `versionSequence` /
+  `isLatestVersion`), so the ingest can populate those columns without re-deriving anything.
+
+  Each record in a family gets:
+  - `relatedIdentifiers` entries using the DataCite version relations: `IsVersionOf` pointing
+    at the Zenodo concept DOI, and `IsNewVersionOf` / `IsPreviousVersionOf` pointing at the
+    harvested siblings.
+  - A `versionInfo` object holding the same facts as scalars: `versionRoot`,
+    `versionRootType`, `versionSequence`, `isLatestVersion`, `versionCount`, `versionSource`,
+    and `repositoryVersion` (the depositor's own free-text version string).
+  - `version` set to the positional sequence, per DataCite.
+
+  Sequence and latest-flag come from the repository, never from local ordering. Zenodo's
+  `relations.version[].index` counts the whole family, and our harvest can have gaps: concept
+  10572542 gives us index 1 and index 2 while index 0 was never indexed, so those records are
+  version 2 and version 3, not 1 and 2. Zenodo's `is_last` likewise reports that a newer
+  version exists upstream even when we have not harvested it. Figshare has no equivalent flag,
+  so latest there is settled against the harvested siblings. Records that are the only known
+  version of their family are left unannotated.
+
+- **`scripts/post_processing/link_versions.py`** links families across an existing corpus,
+  which per-record conversion cannot do because it sees one deposit at a time. Reads version
+  graphs from the raw harvest (`--raw`), falls back to `versionInfo` already on the poster
+  JSON, and supports `--dry-run`, `--out` and `--report`. Idempotent: relinking converges
+  rather than accumulating stale sibling pointers.
+
+### Changed
+- **`version` and `versionInfo` are deposit-only fields in the merger.** Which version of a
+  deposit a poster is, and what family it belongs to, is something only the repository knows.
+  A version string read off the poster face is unrelated and would corrupt the ordering, so
+  extraction can no longer contribute either field.
+
+### Notes
+- Scope is repository-declared version families only. Posters deposited twice under separate
+  DOIs, and posters cross-posted to both Zenodo and Figshare, are duplicates rather than
+  versions and are not touched here.
+
 ## [0.38.1] - 2026-07-14
 
 ### Fixed
