@@ -20,23 +20,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     at the Zenodo concept DOI, and `IsNewVersionOf` / `IsPreviousVersionOf` pointing at the
     harvested siblings.
   - A `versionInfo` object holding the same facts as scalars: `versionRoot`,
-    `versionRootType`, `versionSequence`, `isLatestVersion`, `versionCount`, `versionSource`,
-    and `repositoryVersion` (the depositor's own free-text version string).
-  - `version` set to the positional sequence, per DataCite.
+    `versionRootType`, `versionSequence`, `isLatestVersion`, `versionCount` and
+    `versionSource`.
+
+  `version` is never written. That field is the depositor's own statement, Zenodo lets them
+  put anything in it (dates and free text are both common), and the machine-readable position
+  belongs in `versionInfo.versionSequence` where the platform reads it. Overwriting `version`
+  would destroy real metadata to duplicate something we already publish.
 
   Sequence and latest-flag come from the repository, never from local ordering. Zenodo's
   `relations.version[].index` counts the whole family, and our harvest can have gaps: concept
   10572542 gives us index 1 and index 2 while index 0 was never indexed, so those records are
-  version 2 and version 3, not 1 and 2. Zenodo's `is_last` likewise reports that a newer
-  version exists upstream even when we have not harvested it. Figshare has no equivalent flag,
-  so latest there is settled against the harvested siblings. Records that are the only known
-  version of their family are left unannotated.
+  version 2 and version 3, not 1 and 2. Records that are the only known version of their
+  family are left byte-identical.
+
+  A repository's latest-flag is only true as of harvest time, and our stored metadata is a
+  snapshot. A record harvested while it was newest keeps claiming to be latest, so holding a
+  higher sequence in the same family is treated as proof the flag went stale. Only the highest
+  sequence we hold keeps the repository's own answer, which is what preserves the case where
+  Zenodo reports a newer version we never indexed. This corrected 16 stale flags on the corpus.
+
+  One version can also be more than one file, when a poster was re-ingested in a later harvest
+  batch under the same DOI. Those files are the same version rather than siblings: they
+  collapse to one slot for sequencing, neighbours and `versionCount`, and every file still gets
+  annotated.
 
 - **`scripts/post_processing/link_versions.py`** links families across an existing corpus,
   which per-record conversion cannot do because it sees one deposit at a time. Reads version
-  graphs from the raw harvest (`--raw`), falls back to `versionInfo` already on the poster
-  JSON, and supports `--dry-run`, `--out` and `--report`. Idempotent: relinking converges
-  rather than accumulating stale sibling pointers.
+  graphs from the raw harvest (`--raw`, accepting a directory of per-record JSON as well as
+  ndjson), falls back to `versionInfo` already on the poster JSON, and supports `--dry-run`,
+  `--out` and `--report`. Idempotent: relinking converges rather than accumulating stale
+  sibling pointers.
+
+  `--corpus` is repeatable and every slice that could share a family must be in one run. This
+  is not a convenience: all 16 multi-version families found on the corpus span the pre2025 and
+  data2025 harvest batches, because a poster deposited in one year and revised in a later one
+  has its versions in different batches by construction. Linking the batches separately finds
+  nothing.
+
+### Corpus run (2026-09-02)
+
+Run against `/storage/poster-work/{pre2025,data2025}/merged` on hpcf, 31,363 posters against
+39,471 raw harvested records:
+
+```
+records with a version signal : 31,147   (216 without)
+distinct families             : 31,119
+families with >1 version held :      16   (32 records, all spanning both batches)
+lone later versions           :   2,210   (we hold v2+, earlier versions never harvested)
+stale latest flags corrected  :      16
+duplicate files collapsed     :      12
+files written                 :   2,242
+```
+
+Verified idempotent on a second pass (0 files written) and spot-checked against the live
+Zenodo API.
 
 ### Changed
 - **`version` and `versionInfo` are deposit-only fields in the merger.** Which version of a
@@ -47,7 +85,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Notes
 - Scope is repository-declared version families only. Posters deposited twice under separate
   DOIs, and posters cross-posted to both Zenodo and Figshare, are duplicates rather than
-  versions and are not touched here.
+  versions and are not touched here. That population is larger (822 groups covering 1,764
+  records) and cannot be resolved without judgement: the largest group is fourteen different
+  Loughborough posters sharing a conference series title. See
+  `docs/DUPLICATE_LINKING_PROPOSAL.md` for the evidence tiers and the open questions, which
+  need a team decision before anything is built.
 
 ## [0.38.1] - 2026-07-14
 

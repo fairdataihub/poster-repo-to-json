@@ -67,11 +67,21 @@ would assert that the second version is the original, and would break the
 platform's `@@unique([versionRootId, versionSequence])` on the next harvest that
 picks up the missing one. We store `index + 1` and leave the hole.
 
-**Latest comes from the repository too.** `is_last` tells us a newer version
-exists upstream even when we have not harvested it. Comparing the siblings we
-hold cannot reveal that. Figshare gives no such flag, so there the highest
-harvested version is the best available answer and is settled across the corpus
-rather than per record.
+**Latest comes from the repository, but only as of harvest time.** `is_last`
+tells us a newer version exists upstream even when we have not harvested it,
+which comparing the siblings we hold cannot reveal. The flag is also a snapshot:
+Zenodo set it on the record that was newest when we harvested, so a 2023 record
+still claims to be latest in a corpus that has since picked up its 2025
+successor. Holding a higher sequence in the same family is proof the flag went
+stale, so only the highest sequence we hold keeps the repository's own answer.
+That preserves both cases at once, and corrected 16 stale flags on the corpus.
+Figshare publishes no flag at all; the same rule settles it.
+
+**One version can be more than one file.** A poster re-ingested in a later
+harvest batch appears twice in the corpus under the same DOI. Those files are
+the same version, not siblings. They collapse to one slot for sequencing,
+neighbours and `versionCount`, and every file still gets annotated. Without
+this, a record cross-links to itself and reports a family of two.
 
 ## What gets written
 
@@ -124,10 +134,14 @@ here only and never as a `relatedIdentifier`.
 necessarily how many exist upstream. `versionSource` records which signal
 produced the family, for QA.
 
-`repositoryVersion` preserves the depositor's own version string. Zenodo lets
-depositors write anything in `metadata.version` and dates are common (both
-records in the worked example use one), so it cannot drive ordering. The
-top-level `version` field carries the positional sequence instead.
+The top-level `version` field is left alone. It belongs to the depositor, and
+Zenodo lets them write anything in it: both records in the worked example hold a
+date, and one record in the corpus holds the string `Posters.science automated`.
+It cannot drive ordering, and the ordering already has a home in
+`versionInfo.versionSequence`, which is what the platform reads. Overwriting
+`version` would destroy real metadata to duplicate something published two
+fields away. Cleaning up junk version strings is a field-normalization job, not
+this one.
 
 The schema already permits all of this: `relatedIdentifiers` accepts the four
 DataCite version relations, and the root object is `additionalProperties: true`.
@@ -155,20 +169,55 @@ need the whole corpus:
 
 ```bash
 # Report only
-python scripts/post_processing/link_versions.py --corpus /storage/poster_corpus --dry-run
+python scripts/post_processing/link_versions.py \
+    --corpus /storage/poster-work/pre2025/merged --dry-run
 
 # Link in place, reading version graphs from the raw harvest
 python scripts/post_processing/link_versions.py \
-    --corpus /storage/poster_corpus \
-    --raw /storage/harvest/zenodo.ndjson \
-    --raw /storage/harvest/figshare.ndjson \
+    --corpus /storage/poster-work/pre2025/merged \
+    --corpus /storage/poster-work/data2025/merged \
+    --raw /storage/poster-work/pre2025/metadata \
+    --raw /storage/poster-work/data2025/metadata \
     --report versions.csv
 ```
 
 Pass `--raw` when you have the harvested metadata: Zenodo's version graph lives
-there and nowhere else. Without it the script falls back to `versionInfo`
-already on the poster JSON, which works for corpora converted with 0.39.0 or
-later.
+there and nowhere else. It accepts a directory of per-record JSON, which is how
+the harvest sits on disk, as well as ndjson or a JSON array. Without it the
+script falls back to `versionInfo` already on the poster JSON, which works for
+corpora converted with 0.39.0 or later.
+
+**Pass every corpus slice that could share a family in one run.** All 16
+multi-version families on the corpus span the pre2025 and data2025 batches,
+which follows from what a version is: a poster deposited in one year and revised
+in a later one has its versions in different harvest batches by construction.
+Linking the batches separately finds nothing.
+
+## Result on the corpus
+
+Run on 2026-09-02 against 31,363 posters and 39,471 raw harvested records:
+
+| | |
+| --- | ---: |
+| Records with a version signal | 31,147 |
+| Records without one | 216 |
+| Distinct families | 31,119 |
+| Families where we hold more than one version | 16 |
+| Records in those families | 32 |
+| Lone later versions (we hold v2+, earlier never harvested) | 2,210 |
+| Stale latest flags corrected | 16 |
+| Duplicate files collapsed | 12 |
+| Files written | 2,242 |
+
+The 2,210 lone later versions are the largest group and are not an error. The
+harvester picks up the current state of a deposit, not its history, so a poster
+revised twice before we ever saw it enters the corpus at version 3 with versions
+1 and 2 absent. Recording that is useful: it says the record is not the original
+and identifies the family, so a later harvest that picks up the earlier versions
+slots them in without renumbering anything.
+
+Sequence distribution of those lone records: 1,698 at v2, 334 at v3, 94 at v4,
+44 at v5, and a tail to v9.
 
 The script is idempotent. Relinking after a re-harvest drops sibling pointers
 that no longer apply instead of accumulating them, and a record that stops being
@@ -177,18 +226,22 @@ restored.
 
 ## What this does not cover
 
-Repository-declared families are a small population. Grouping the harvested
-records by concept id finds 19 families holding 38 records.
+Repository-declared families are a small population: 16 of them on the corpus,
+holding 32 records.
 
-Matching on title and first author across the merged corpus finds far more: 737
-groups covering 1,579 records, of which 686 are within one repository and 51
-span Zenodo and Figshare. Those are not versions in the repository's sense.
-They are separate deposits with separate DOIs, cross-postings to two
-repositories, or the same poster presented at two conferences a year apart, and
-some are simply different posters that share a title.
+Matching on title and first author finds far more. 822 groups covering 1,764
+records, of which only 11 groups are ones this feature already linked. Those are
+not versions in the repository's sense. They are separate deposits with separate
+DOIs, cross-postings to two repositories, the same poster presented at two
+conferences a year apart, and some that are simply different posters sharing a
+title: the largest group is fourteen Loughborough posters that share a
+conference series title and are fourteen distinct pieces of work.
 
-Linking them is a worthwhile separate problem with a different shape. It needs
-a different relation (DataCite has `IsIdenticalTo` and `IsVariantFormOf`), and
-it needs a review step, because title-and-author matching produces false
-positives that the repository signals never do. Nothing here forecloses it: a
-record can carry both kinds of relation.
+That is a different problem needing a different relation (DataCite has
+`IsIdenticalTo` and `IsVariantFormOf`) and a review step, because
+title-and-author matching produces false positives that repository signals never
+do. Nothing here forecloses it: a record can carry both kinds of relation.
+
+The evidence tiers, the proposed phasing and the open questions are written up
+in [DUPLICATE_LINKING_PROPOSAL.md](DUPLICATE_LINKING_PROPOSAL.md) for the team
+to decide on.

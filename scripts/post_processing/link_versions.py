@@ -17,14 +17,24 @@ Every version is kept. Nothing is deleted or merged.
 
 Usage:
     # Report only, change nothing
-    python link_versions.py --corpus /storage/poster_corpus --dry-run
+    python link_versions.py --corpus /storage/poster-work/pre2025/merged --dry-run
 
     # Link in place, reading version graphs from the raw harvest
-    python link_versions.py --corpus /storage/poster_corpus \\
-        --raw /storage/harvest/zenodo.ndjson --raw /storage/harvest/figshare.ndjson
+    python link_versions.py --corpus /storage/poster-work/pre2025/merged \\
+        --raw /storage/poster-work/pre2025/metadata
 
     # Write to a new tree instead of in place
     python link_versions.py --corpus ./corpus --out ./corpus_linked
+
+Pass every corpus slice that could share a family in one run. A poster deposited
+in 2024 and revised in 2025 has its two versions in different harvest batches,
+so linking the batches separately would never connect them:
+
+    python link_versions.py \\
+        --corpus /storage/poster-work/pre2025/merged \\
+        --corpus /storage/poster-work/data2025/merged \\
+        --raw /storage/poster-work/pre2025/metadata \\
+        --raw /storage/poster-work/data2025/metadata
 """
 
 import argparse
@@ -43,14 +53,39 @@ logger = logging.getLogger("link_versions")
 
 
 def _iter_raw(paths):
-    """Yield raw harvested records from ndjson or json-array files."""
+    """Yield raw harvested records.
+
+    Accepts a directory of one-record-per-file JSON (how the harvest is laid out
+    on disk, e.g. metadata/zenodo/13341161.json), an ndjson/jsonl file, or a
+    file holding a JSON array.
+    """
     for path in paths:
         p = Path(path)
         if not p.exists():
             logger.warning("raw metadata not found: %s", p)
             continue
-        text_head = p.open("r", encoding="utf-8").read(1)
-        if text_head == "[":
+
+        if p.is_dir():
+            count = 0
+            for f in p.rglob("*.json"):
+                try:
+                    rec = json.loads(f.read_text(encoding="utf-8"))
+                except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+                    logger.warning("skipping unreadable raw file %s", f)
+                    continue
+                if isinstance(rec, list):
+                    for r in rec:
+                        yield r
+                        count += 1
+                else:
+                    yield rec
+                    count += 1
+            logger.info("read %d raw records from %s", count, p)
+            continue
+
+        with p.open("r", encoding="utf-8") as fh:
+            head = fh.read(1)
+        if head == "[":
             with p.open("r", encoding="utf-8") as fh:
                 for rec in json.load(fh):
                     yield rec
@@ -124,26 +159,37 @@ def _family_from_existing(poster_json, doi):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--corpus", required=True, help="directory of poster .json files")
+    ap.add_argument("--corpus", action="append", required=True,
+                    help="directory of poster .json files; repeatable, and every "
+                         "slice that could share a version family must be in the "
+                         "same run")
     ap.add_argument("--raw", action="append", default=[],
-                    help="raw harvested metadata (ndjson or json array); repeatable")
+                    help="raw harvested metadata: a directory of per-record JSON, "
+                         "an ndjson file, or a JSON array file; repeatable")
     ap.add_argument("--out", help="write to this tree instead of in place")
     ap.add_argument("--dry-run", action="store_true", help="report only, write nothing")
     ap.add_argument("--report", help="write a CSV of every linked family here")
     args = ap.parse_args()
 
-    corpus = Path(args.corpus)
-    if not corpus.is_dir():
-        ap.error(f"--corpus is not a directory: {corpus}")
+    roots = []
+    for c in args.corpus:
+        root = Path(c)
+        if not root.is_dir():
+            ap.error(f"--corpus is not a directory: {root}")
+        roots.append(root)
 
     raw_index = build_raw_index(args.raw) if args.raw else {}
 
-    files = sorted(corpus.rglob("*.json"))
-    logger.info("scanning %d poster files", len(files))
+    files = []
+    for root in roots:
+        found = sorted(root.rglob("*.json"))
+        logger.info("%s: %d poster files", root, len(found))
+        files.extend((root, f) for f in found)
+    logger.info("scanning %d poster files across %d corpus roots", len(files), len(roots))
 
     items = []
     stats = Counter()
-    for path in files:
+    for root, path in files:
         try:
             poster_json = json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError):
@@ -165,7 +211,8 @@ def main():
             stats["no-version-signal"] += 1
             continue
 
-        items.append({"path": path, "family": family, "poster_json": poster_json,
+        items.append({"path": path, "root": root, "family": family,
+                      "poster_json": poster_json,
                       "before": json.dumps(poster_json, sort_keys=True)})
 
     link_stats = version_linking.link_families(items)
@@ -183,7 +230,11 @@ def main():
         if args.dry_run:
             continue
         if args.out:
-            dest = Path(args.out) / item["path"].relative_to(corpus)
+            # Keep the corpus roots apart under --out so same-named files in
+            # different slices cannot overwrite each other.
+            root = item["root"]
+            prefix = root.name if len(roots) > 1 else ""
+            dest = Path(args.out) / prefix / item["path"].relative_to(root)
             dest.parent.mkdir(parents=True, exist_ok=True)
         else:
             dest = item["path"]

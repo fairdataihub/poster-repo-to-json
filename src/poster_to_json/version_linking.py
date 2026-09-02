@@ -266,23 +266,18 @@ def apply_version_info(
 ) -> Dict:
     """Write version linking onto ``poster_json`` in place and return it.
 
-    A record that is the only known member of its family and sits at sequence 1
-    with nothing newer upstream gets no annotation, because there is nothing to
-    link. Every other record gets both the DataCite relations and
-    ``versionInfo``.
+    A record that is the only known member of its family, sits at sequence 1 and
+    has nothing newer upstream gets no annotation, because there is nothing to
+    say. Every other record gets the DataCite relations and ``versionInfo``.
+
+    ``version`` is never touched. That field is the depositor's own statement,
+    and Zenodo lets them put anything in it (dates are common), so it cannot
+    drive ordering. The machine-readable position lives in
+    ``versionInfo.versionSequence``, which is what the platform reads. Rewriting
+    ``version`` would destroy the depositor's metadata to duplicate something we
+    already publish elsewhere.
     """
-    # The repository's own free-text version string, if the converter set one.
-    # Zenodo lets depositors write anything there (dates are common), so it
-    # cannot drive ordering, but it is the depositor's statement and is kept.
-    # Once we have linked a record, poster_json["version"] holds our own
-    # sequence, so the depositor's string can only be read back out of
-    # versionInfo. Re-reading the field would capture our output as if it were
-    # theirs.
     previous_info = poster_json.get("versionInfo")
-    if isinstance(previous_info, dict):
-        repository_version = previous_info.get("repositoryVersion")
-    else:
-        repository_version = _clean(poster_json.get("version")) or None
 
     solitary = (
         family_size <= 1
@@ -292,20 +287,17 @@ def apply_version_info(
         and not next_doi
     )
     if solitary:
-        remaining = _strip_version_relations(poster_json)
-        if remaining:
-            poster_json["relatedIdentifiers"] = remaining
-        else:
-            poster_json.pop("relatedIdentifiers", None)
+        # Only rewrite relatedIdentifiers if a previous linking run left version
+        # relations here. Otherwise leave the record untouched: a depositor's
+        # own relations are not ours to reshuffle.
+        original = poster_json.get("relatedIdentifiers")
         if isinstance(previous_info, dict):
-            # Undo an earlier linking run: restore the depositor's own string
-            # rather than leaving a sequence number from a family this record
-            # no longer belongs to.
             poster_json.pop("versionInfo", None)
-            if repository_version:
-                poster_json["version"] = repository_version
-            else:
-                poster_json.pop("version", None)
+            remaining = _strip_version_relations(poster_json)
+            if remaining:
+                poster_json["relatedIdentifiers"] = remaining
+            elif isinstance(original, list) and original:
+                poster_json.pop("relatedIdentifiers", None)
         return poster_json
 
     relations = _strip_version_relations(poster_json)
@@ -350,15 +342,7 @@ def apply_version_info(
 
     info = family.to_dict()
     info["versionCount"] = family_size
-    if repository_version:
-        info["repositoryVersion"] = repository_version
     poster_json["versionInfo"] = info
-
-    # DataCite's own version field. The repository's free-text version string
-    # is unreliable for ordering (Zenodo lets depositors put anything in it,
-    # commonly a date), so we publish the positional sequence here and keep the
-    # depositor's string in versionInfo.repositoryVersion.
-    poster_json["version"] = str(family.sequence)
 
     return poster_json
 
@@ -375,7 +359,8 @@ def link_families(items: Sequence[Dict]) -> Dict[str, int]:
     ``versionSequence`` still reflects the repository's true numbering.
     """
     groups: Dict[str, List[Dict]] = {}
-    stats = {"records": 0, "families": 0, "multi_version_families": 0, "linked": 0}
+    stats = {"records": 0, "families": 0, "multi_version_families": 0, "linked": 0,
+             "duplicate_files": 0, "stale_latest_corrected": 0}
 
     for item in items:
         family = item.get("family")
@@ -387,40 +372,66 @@ def link_families(items: Sequence[Dict]) -> Dict[str, int]:
     stats["families"] = len(groups)
 
     for root, members in groups.items():
-        members.sort(key=lambda m: (m["family"].sequence, m["family"].own_doi))
-        size = len(members)
+        # One version can appear as more than one file: the same DOI is present
+        # in two corpus slices when a poster was re-ingested in a later harvest.
+        # Those files are the same version, not siblings, so they collapse into
+        # one slot. Every file in the slot still gets annotated; the slot counts
+        # once for sequencing, neighbours and versionCount.
+        slots: Dict[str, List[Dict]] = {}
+        for i, member in enumerate(members):
+            doi = member["family"].own_doi
+            key = doi if doi else f"\x00no-doi:{i}"
+            slots.setdefault(key, []).append(member)
+        stats["duplicate_files"] += len(members) - len(slots)
+
+        ordered = sorted(
+            slots.values(),
+            key=lambda group: (group[0]["family"].sequence, group[0]["family"].own_doi),
+        )
+        size = len(ordered)
         if size > 1:
             stats["multi_version_families"] += 1
 
-        # Figshare gives no upstream "latest" flag, so the highest harvested
-        # version is the best available answer. Zenodo's is_last is authoritative
-        # and left alone.
-        figshare_only = all(
-            m["family"].source.startswith("figshare") for m in members
-        )
-        if figshare_only:
-            for i, m in enumerate(members):
-                m["family"].is_latest = i == size - 1
+        # A repository's "this is the latest version" flag is only true as of
+        # the moment we harvested it. Zenodo sets is_last on the newest record
+        # at that time, so a record harvested in 2023 still claims to be latest
+        # in a corpus that has since picked up its 2025 successor. Holding a
+        # higher sequence in the same family is proof the flag went stale.
+        # Figshare publishes no flag at all and is provisionally set true, which
+        # the same rule resolves. Only the highest sequence we hold keeps the
+        # repository's own answer, since only it can still be right.
+        highest = ordered[-1][0]["family"].sequence
+        for group in ordered:
+            family = group[0]["family"]
+            if family.sequence < highest and family.is_latest:
+                family.is_latest = False
+                stats["stale_latest_corrected"] += 1
 
-        for i, member in enumerate(members):
-            previous_doi = members[i - 1]["family"].own_doi if i > 0 else None
-            next_doi = members[i + 1]["family"].own_doi if i < size - 1 else None
-            before = member["poster_json"].get("versionInfo")
-            apply_version_info(
-                member["poster_json"],
-                member["family"],
-                previous_doi=previous_doi,
-                next_doi=next_doi,
-                family_size=size,
-            )
-            if member["poster_json"].get("versionInfo") != before:
-                stats["linked"] += 1
+        for i, group in enumerate(ordered):
+            previous_doi = ordered[i - 1][0]["family"].own_doi if i > 0 else None
+            next_doi = ordered[i + 1][0]["family"].own_doi if i < size - 1 else None
+            family = group[0]["family"]
+            for member in group:
+                member["family"] = family
+                before = member["poster_json"].get("versionInfo")
+                apply_version_info(
+                    member["poster_json"],
+                    family,
+                    previous_doi=previous_doi,
+                    next_doi=next_doi,
+                    family_size=size,
+                )
+                if member["poster_json"].get("versionInfo") != before:
+                    stats["linked"] += 1
 
     logger.info(
-        "version linking: %d records, %d families, %d with multiple versions, %d annotated",
+        "version linking: %d records, %d families, %d with multiple versions, "
+        "%d annotated, %d duplicate files collapsed, %d stale latest flags corrected",
         stats["records"],
         stats["families"],
         stats["multi_version_families"],
         stats["linked"],
+        stats["duplicate_files"],
+        stats["stale_latest_corrected"],
     )
     return stats
