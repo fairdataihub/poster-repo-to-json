@@ -1976,7 +1976,6 @@ _SCHEMA_TOP_LEVEL = frozenset({
     "publisher", "relatedIdentifiers", "researchField", "rightsList", "sizes", "subjects",
     "tableCaptions", "titles", "types", "version",
     "$schema", "domain", "_license_blocked",          # intentional non-schema extras
-    "versionInfo",                                     # repository version family (version_linking)
     "references", "References", "acknowledgements", "acknowledgments", "acknowledgement",
     "Acknowledgements", "contact", "contactInfo", "contactInformation", "contactDetails",
     "keyFindings", "Key Findings",                     # approved structured extras (kept)

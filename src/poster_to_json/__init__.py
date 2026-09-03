@@ -18,7 +18,7 @@ from .schema_converter import SchemaConverter, load_bundled_schema
 from .merger import MetadataMerger
 from .version_linking import (
     VersionFamily,
-    apply_version_info,
+    apply_version_links,
     from_figshare,
     from_record,
     from_zenodo,
@@ -31,7 +31,7 @@ __all__ = [
     "MetadataMerger",
     "load_bundled_schema",
     "VersionFamily",
-    "apply_version_info",
+    "apply_version_links",
     "from_record",
     "from_zenodo",
     "from_figshare",

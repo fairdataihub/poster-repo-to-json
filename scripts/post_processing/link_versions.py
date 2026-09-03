@@ -7,11 +7,15 @@ family key and the position but cannot point a record at its siblings. This
 script runs over a whole corpus, groups records into families, and writes the
 sibling cross-links plus the settled isLatestVersion flag.
 
-It reads the family signals from the raw harvested metadata when that is
-available (--raw), because Zenodo's relations.version graph is the only place
-the true sequence and the is_last flag live. Where raw metadata is missing it
-falls back to versionInfo already present on the poster JSON, so a corpus that
-was converted with 0.39.0 or later can be relinked without a re-harvest.
+It reads the family signals from the raw harvested metadata (--raw), because
+Zenodo's relations.version graph is the only place the true sequence and the
+is_last flag live. --raw is required: the poster JSON carries the resulting
+relations but not the sequence they were derived from, so a corpus cannot be
+relinked from its own output.
+
+Only fields the poster schema already defines are written: relatedIdentifiers
+entries using the DataCite version relations. Nothing else is touched, and the
+depositor's own `version` string is left exactly as it is.
 
 Every version is kept. Nothing is deleted or merged.
 
@@ -138,24 +142,6 @@ def _own_doi(poster_json):
     return ""
 
 
-def _family_from_existing(poster_json, doi):
-    """Rebuild a VersionFamily from versionInfo written at conversion time."""
-    info = poster_json.get("versionInfo")
-    if not isinstance(info, dict) or not info.get("versionRoot"):
-        return None
-    sequence = info.get("versionSequence")
-    if not isinstance(sequence, int) or sequence < 1:
-        return None
-    return version_linking.VersionFamily(
-        root=info["versionRoot"],
-        root_type=info.get("versionRootType", "Other"),
-        sequence=sequence,
-        is_latest=bool(info.get("isLatestVersion", True)),
-        own_doi=doi,
-        source=info.get("versionSource", "existing"),
-    )
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -163,9 +149,10 @@ def main():
                     help="directory of poster .json files; repeatable, and every "
                          "slice that could share a version family must be in the "
                          "same run")
-    ap.add_argument("--raw", action="append", default=[],
+    ap.add_argument("--raw", action="append", default=[], required=True,
                     help="raw harvested metadata: a directory of per-record JSON, "
-                         "an ndjson file, or a JSON array file; repeatable")
+                         "an ndjson file, or a JSON array file; repeatable. Required, "
+                         "because the version graph exists only in the raw harvest")
     ap.add_argument("--out", help="write to this tree instead of in place")
     ap.add_argument("--dry-run", action="store_true", help="report only, write nothing")
     ap.add_argument("--report", help="write a CSV of every linked family here")
@@ -178,7 +165,7 @@ def main():
             ap.error(f"--corpus is not a directory: {root}")
         roots.append(root)
 
-    raw_index = build_raw_index(args.raw) if args.raw else {}
+    raw_index = build_raw_index(args.raw)
 
     files = []
     for root in roots:
@@ -201,15 +188,10 @@ def main():
 
         doi = _own_doi(poster_json)
         family = raw_index.get(doi) if doi else None
-        if family:
-            stats["family-from-raw"] += 1
-        else:
-            family = _family_from_existing(poster_json, doi)
-            if family:
-                stats["family-from-versioninfo"] += 1
         if not family:
             stats["no-version-signal"] += 1
             continue
+        stats["family-from-raw"] += 1
 
         items.append({"path": path, "root": root, "family": family,
                       "poster_json": poster_json,
@@ -217,12 +199,18 @@ def main():
 
     link_stats = version_linking.link_families(items)
 
+    # How many distinct versions of each family the corpus holds. Files sharing a
+    # DOI are one version present twice, not two versions.
+    family_versions = {}
+    for item in items:
+        f = item["family"]
+        family_versions.setdefault(f.group_key, set()).add(f.own_doi)
+
     written = 0
     multi = []
     for item in items:
         after = json.dumps(item["poster_json"], sort_keys=True)
-        family = item["family"]
-        if (item["poster_json"].get("versionInfo") or {}).get("versionCount", 1) > 1:
+        if len(family_versions[item["family"].group_key]) > 1:
             multi.append(item)
         if after == item["before"]:
             continue
@@ -258,7 +246,7 @@ def main():
         print("Multi-version families (sequence, latest, doi):")
         by_root = {}
         for item in multi:
-            by_root.setdefault(item["family"].root, []).append(item)
+            by_root.setdefault(item["family"].root_doi or item["family"].group_key, []).append(item)
         for root in sorted(by_root)[:25]:
             members = sorted(by_root[root], key=lambda m: m["family"].sequence)
             print(f"  {root}")
@@ -271,10 +259,10 @@ def main():
 
     if args.report:
         lines = ["versionRoot,versionSequence,isLatestVersion,doi,versionSource,file"]
-        for item in sorted(multi, key=lambda m: (m["family"].root, m["family"].sequence)):
+        for item in sorted(multi, key=lambda m: (m["family"].group_key, m["family"].sequence)):
             f = item["family"]
             lines.append(
-                f'"{f.root}",{f.sequence},{str(f.is_latest).lower()},'
+                f'"{f.root_doi or f.group_key}",{f.sequence},{str(f.is_latest).lower()},'
                 f'"{f.own_doi}","{f.source}","{item["path"]}"'
             )
         Path(args.report).write_text("\n".join(lines) + "\n", encoding="utf-8")

@@ -3,6 +3,11 @@
 The Zenodo fixtures mirror live API responses for concept 10572542, which holds
 three versions (index 0, 1, 2) of which our harvest only ever saw two. That gap
 is the case the module exists to get right.
+
+Only fields the poster schema already defines are written, so every assertion
+here is about `relatedIdentifiers`. The platform derives its three columns from
+those: versionRootId from IsVersionOf, isLatestVersion from the absence of
+IsPreviousVersionOf, and versionSequence from position in the chain.
 """
 
 import sys
@@ -53,14 +58,25 @@ def figshare_record(article_id, version):
     }
 
 
+def rel(poster_json, relation):
+    """Related identifiers of one relation type, as the platform would read them."""
+    return [r["relatedIdentifier"] for r in poster_json.get("relatedIdentifiers") or []
+            if r.get("relationType") == relation]
+
+
+def is_latest(poster_json):
+    """How the platform derives isLatestVersion: nothing newer points away."""
+    return not rel(poster_json, "IsPreviousVersionOf")
+
+
 # --- Zenodo ------------------------------------------------------------------
 
 def test_zenodo_sequence_is_repository_index_plus_one():
     f = vl.from_zenodo(zenodo_record(17435084, "10.5281/zenodo.17435084", 2, True))
     assert f.sequence == 3
     assert f.is_latest is True
-    assert f.root == "10.5281/zenodo.10572542"
-    assert f.root_type == "DOI"
+    assert f.root_doi == "10.5281/zenodo.10572542"
+    assert f.group_key == "10.5281/zenodo.10572542"
     assert f.source == "zenodo-relations"
 
 
@@ -68,30 +84,6 @@ def test_zenodo_not_latest_is_honoured():
     f = vl.from_zenodo(zenodo_record(13168995, "10.5281/zenodo.13168995", 1, False))
     assert f.sequence == 2
     assert f.is_latest is False
-
-
-def test_zenodo_gap_in_harvest_does_not_renumber():
-    """Harvesting index 1 and 2 must not present them as versions 1 and 2."""
-    items = [
-        {"family": vl.from_zenodo(zenodo_record(13168995, "10.5281/zenodo.13168995", 1, False)),
-         "poster_json": {}},
-        {"family": vl.from_zenodo(zenodo_record(17435084, "10.5281/zenodo.17435084", 2, True)),
-         "poster_json": {}},
-    ]
-    vl.link_families(items)
-    sequences = [i["poster_json"]["versionInfo"]["versionSequence"] for i in items]
-    assert sequences == [2, 3]
-
-
-def test_zenodo_is_last_false_survives_when_newer_version_unharvested():
-    """Only version we hold, but Zenodo says something newer exists."""
-    item = {"family": vl.from_zenodo(
-        zenodo_record(13168995, "10.5281/zenodo.13168995", 1, False)),
-        "poster_json": {}}
-    vl.link_families([item])
-    info = item["poster_json"]["versionInfo"]
-    assert info["isLatestVersion"] is False
-    assert info["versionCount"] == 1
 
 
 def test_zenodo_without_relations_falls_back_to_concept():
@@ -106,8 +98,8 @@ def test_zenodo_without_relations_falls_back_to_concept():
 def test_zenodo_without_concept_doi_uses_recid_key():
     rec = {"id": 1, "doi": "10.5281/zenodo.1", "conceptrecid": "999", "metadata": {}}
     f = vl.from_zenodo(rec)
-    assert f.root == "zenodo:recid:999"
-    assert f.root_type == "Other"
+    assert f.root_doi == ""
+    assert f.group_key == "zenodo:recid:999"
 
 
 def test_zenodo_no_signal_returns_none():
@@ -117,12 +109,25 @@ def test_zenodo_no_signal_returns_none():
 
 # --- Figshare ----------------------------------------------------------------
 
-def test_figshare_uses_article_id_and_version_int():
+def test_figshare_root_is_the_article_doi_without_the_version_suffix():
+    """Figshare's base DOI is registered with DataCite and resolves.
+
+    It is the direct equivalent of Zenodo's concept DOI, so it can be published
+    as an IsVersionOf target rather than needing an invented key.
+    """
     f = vl.from_figshare(figshare_record(21359946, 1))
-    assert f.root == "figshare:article:21359946"
-    assert f.sequence == 1
+    assert f.root_doi == "10.6084/m9.figshare.21359946"
     assert f.own_doi == "10.6084/m9.figshare.21359946.v1"
+    assert f.sequence == 1
     assert f.source == "figshare-version"
+
+
+def test_figshare_institutional_prefixes_work_the_same_way():
+    rec = {"id": 24049458, "doi": "10.17044/scilifelab.24049458.v2",
+           "version": 2, "defined_type": 4}
+    f = vl.from_figshare(rec)
+    assert f.root_doi == "10.17044/scilifelab.24049458"
+    assert f.sequence == 2
 
 
 def test_figshare_falls_back_to_vn_suffix():
@@ -132,33 +137,169 @@ def test_figshare_falls_back_to_vn_suffix():
     assert f.source == "figshare-doi"
 
 
+def test_figshare_without_a_versioned_doi_has_no_root_doi():
+    rec = {"id": 777, "doi": "10.6084/m9.figshare.777", "version": 1, "defined_type": 4}
+    f = vl.from_figshare(rec)
+    assert f.root_doi == ""
+    assert f.group_key == "figshare:article:777"
+
+
+# --- what actually gets written ----------------------------------------------
+
+def test_family_anchor_and_sibling_relations():
+    a, b = {}, {}
+    items = [
+        {"family": vl.from_zenodo(zenodo_record(1, "10.5281/zenodo.1", 0, False)),
+         "poster_json": a},
+        {"family": vl.from_zenodo(zenodo_record(2, "10.5281/zenodo.2", 1, True)),
+         "poster_json": b},
+    ]
+    vl.link_families(items)
+
+    for pj in (a, b):
+        assert rel(pj, "IsVersionOf") == ["10.5281/zenodo.10572542"]
+    assert rel(a, "IsPreviousVersionOf") == ["10.5281/zenodo.2"]
+    assert rel(a, "IsNewVersionOf") == []
+    assert rel(b, "IsNewVersionOf") == ["10.5281/zenodo.1"]
+    assert rel(b, "IsPreviousVersionOf") == []
+    assert is_latest(a) is False
+    assert is_latest(b) is True
+
+
+def test_nothing_but_related_identifiers_is_written():
+    """No invented top-level fields. The schema already has what we need."""
+    poster = {"titles": [{"title": "A poster"}], "version": "2024-08-02"}
+    items = [
+        {"family": vl.from_zenodo(zenodo_record(1, "10.5281/zenodo.1", 1, False)),
+         "poster_json": poster},
+        {"family": vl.from_zenodo(zenodo_record(2, "10.5281/zenodo.2", 2, True)),
+         "poster_json": {}},
+    ]
+    vl.link_families(items)
+    assert set(poster) == {"titles", "version", "relatedIdentifiers"}
+    assert "versionInfo" not in poster
+
+
+def test_depositor_version_string_is_never_touched():
+    """`version` belongs to the depositor and is not an ordering field.
+
+    Zenodo lets them put anything in it: dates are common, and one record in the
+    corpus reads "Posters.science automated".
+    """
+    poster = {"version": "Posters.science automated"}
+    items = [
+        {"family": vl.from_zenodo(zenodo_record(1, "10.5281/zenodo.1", 1, False)),
+         "poster_json": poster},
+        {"family": vl.from_zenodo(zenodo_record(2, "10.5281/zenodo.2", 2, True)),
+         "poster_json": {}},
+    ]
+    vl.link_families(items)
+    assert poster["version"] == "Posters.science automated"
+
+
+def test_zenodo_gap_in_harvest_does_not_renumber():
+    """Harvesting index 1 and 2 must not present them as versions 1 and 2."""
+    older, newer = {}, {}
+    items = [
+        {"family": vl.from_zenodo(zenodo_record(13168995, "10.5281/zenodo.13168995", 1, False)),
+         "poster_json": older},
+        {"family": vl.from_zenodo(zenodo_record(17435084, "10.5281/zenodo.17435084", 2, True)),
+         "poster_json": newer},
+    ]
+    vl.link_families(items)
+    assert [i["family"].sequence for i in items] == [2, 3]
+    assert rel(older, "IsPreviousVersionOf") == ["10.5281/zenodo.17435084"]
+    assert rel(newer, "IsNewVersionOf") == ["10.5281/zenodo.13168995"]
+
+
+def test_lone_later_version_still_gets_its_family_anchor():
+    """We hold v2 and never harvested v1. The family link is still true."""
+    poster = {}
+    item = {"family": vl.from_zenodo(
+        zenodo_record(13168995, "10.5281/zenodo.13168995", 1, True)),
+        "poster_json": poster}
+    vl.link_families([item])
+    assert rel(poster, "IsVersionOf") == ["10.5281/zenodo.10572542"]
+    assert rel(poster, "IsNewVersionOf") == []
+    assert is_latest(poster) is True
+
+
+def test_solitary_first_version_is_left_byte_identical():
+    """The overwhelmingly common case must not be rewritten at all."""
+    import copy
+    poster = {
+        "titles": [{"title": "A poster"}],
+        "version": "1.0",
+        "relatedIdentifiers": [
+            {"relatedIdentifier": "10.1234/paper", "relatedIdentifierType": "DOI",
+             "relationType": "IsSupplementTo"},
+        ],
+    }
+    original = copy.deepcopy(poster)
+    vl.link_families([{"family": vl.from_figshare(figshare_record(100, 1)),
+                       "poster_json": poster}])
+    assert poster == original
+
+
+def test_synthetic_group_key_is_never_published():
+    """A repository-scoped key groups records but is not a resolvable identifier.
+
+    Institutional Figshare deposits sometimes carry a Handle rather than a
+    versioned DOI, leaving nothing to publish as a family anchor. Siblings still
+    link to each other by their own DOIs; the group key stays internal.
+    """
+    a, b = {}, {}
+    items = [
+        {"family": vl.from_figshare({"id": 777, "doi": doi, "version": n,
+                                     "defined_type": 4}),
+         "poster_json": pj}
+        for doi, n, pj in (("10.6084/m9.figshare.777", 1, a),
+                           ("10.6084/m9.figshare.778", 2, b))
+    ]
+    vl.link_families(items)
+    assert items[0]["family"].group_key == "figshare:article:777"
+    for pj in (a, b):
+        for r in pj.get("relatedIdentifiers") or []:
+            assert not r["relatedIdentifier"].startswith("figshare:")
+        assert rel(pj, "IsVersionOf") == []
+    assert rel(a, "IsPreviousVersionOf") == ["10.6084/m9.figshare.778"]
+    assert rel(b, "IsNewVersionOf") == ["10.6084/m9.figshare.777"]
+
+
+# --- stale flags and duplicate files -----------------------------------------
+
 def test_stale_is_last_is_overridden_by_a_higher_harvested_sequence():
     """Zenodo's is_last is only true as of harvest time.
 
-    A record harvested while it was the newest keeps claiming to be latest. If
-    the corpus later picks up its successor, holding a higher sequence in the
-    same family proves the flag went stale.
+    A record harvested while it was newest keeps claiming to be latest. If the
+    corpus later picks up its successor, holding a higher sequence in the same
+    family proves the flag went stale.
     """
+    old, new = {}, {}
     items = [
         # Harvested in 2023, when it really was the last version.
         {"family": vl.from_zenodo(zenodo_record(7853235, "10.5281/zenodo.7853235", 0, True,
                                                 concept_doi="10.5281/zenodo.7853234",
                                                 concept_recid="7853234")),
-         "poster_json": {}},
+         "poster_json": old},
         # Harvested later. The 2023 snapshot was never refreshed.
         {"family": vl.from_zenodo(zenodo_record(17169582, "10.5281/zenodo.17169582", 1, True,
                                                 concept_doi="10.5281/zenodo.7853234",
                                                 concept_recid="7853234")),
-         "poster_json": {}},
+         "poster_json": new},
     ]
     stats = vl.link_families(items)
-    flags = [i["poster_json"]["versionInfo"]["isLatestVersion"] for i in items]
-    assert flags == [False, True]
     assert stats["stale_latest_corrected"] == 1
+    assert is_latest(old) is False
+    assert is_latest(new) is True
 
 
 def test_highest_sequence_keeps_the_repository_answer():
-    """is_last False on the newest record we hold means a newer one exists upstream."""
+    """is_last False on the newest record we hold means a newer one exists upstream.
+
+    We cannot point at it, so the record simply carries no forward link and the
+    platform reads it as latest among what we have. Nothing is fabricated.
+    """
     items = [
         {"family": vl.from_zenodo(zenodo_record(1, "10.5281/zenodo.1", 0, True)),
          "poster_json": {}},
@@ -166,17 +307,12 @@ def test_highest_sequence_keeps_the_repository_answer():
          "poster_json": {}},
     ]
     vl.link_families(items)
-    flags = [i["poster_json"]["versionInfo"]["isLatestVersion"] for i in items]
-    assert flags == [False, False]
+    assert items[0]["family"].is_latest is False
+    assert items[1]["family"].is_latest is False
 
 
 def test_same_record_in_two_corpus_slices_is_not_two_versions():
-    """A re-ingested poster has the same DOI in two harvest batches.
-
-    Those files are the same version, not siblings. They must not cross-link to
-    themselves or inflate versionCount, but both files still get annotated.
-    """
-    shared = "10.6084/m9.figshare.15087663.v1"
+    """A re-ingested poster has the same DOI in two harvest batches."""
     a, b = {}, {}
     items = [
         {"family": vl.from_figshare(figshare_record(15087663, 1)), "poster_json": a},
@@ -185,13 +321,12 @@ def test_same_record_in_two_corpus_slices_is_not_two_versions():
     stats = vl.link_families(items)
     assert stats["duplicate_files"] == 1
     assert stats["multi_version_families"] == 0
-    # One version only, so nothing to link and no self-reference.
+    # One version only: nothing to link, and above all no self-reference.
     assert a == {} and b == {}
-    assert items[0]["family"].own_doi == shared
 
 
 def test_duplicate_files_annotated_but_counted_once():
-    """Two slices hold v1; one slice holds v2. versionCount is 2, not 3."""
+    """Two slices hold v1; one slice holds v2. That is a family of two."""
     v1a, v1b, v2 = {}, {}, {}
     items = [
         {"family": vl.from_figshare(figshare_record(100, 1)), "poster_json": v1a},
@@ -202,84 +337,35 @@ def test_duplicate_files_annotated_but_counted_once():
     assert stats["duplicate_files"] == 1
     assert stats["multi_version_families"] == 1
     for pj in (v1a, v1b):
-        assert pj["versionInfo"]["versionCount"] == 2
-        assert pj["versionInfo"]["versionSequence"] == 1
-        assert pj["versionInfo"]["isLatestVersion"] is False
-        forward = [r["relatedIdentifier"] for r in pj["relatedIdentifiers"]
-                   if r["relationType"] == "IsPreviousVersionOf"]
-        assert forward == ["10.6084/m9.figshare.100.v2"]
-    assert v2["versionInfo"]["versionCount"] == 2
+        assert rel(pj, "IsPreviousVersionOf") == ["10.6084/m9.figshare.100.v2"]
+        assert is_latest(pj) is False
     # The newer record points back at v1 once, not twice.
-    back = [r["relatedIdentifier"] for r in v2["relatedIdentifiers"]
-            if r["relationType"] == "IsNewVersionOf"]
-    assert back == ["10.6084/m9.figshare.100.v1"]
+    assert rel(v2, "IsNewVersionOf") == ["10.6084/m9.figshare.100.v1"]
+    assert is_latest(v2) is True
 
 
 def test_records_without_a_doi_are_not_collapsed_together():
-    """Missing DOIs must not merge unrelated records into one slot."""
-    items = []
-    for _ in range(2):
-        rec = {"id": 1, "conceptrecid": "999", "metadata": {}}
-        items.append({"family": vl.from_zenodo(rec), "poster_json": {}})
+    items = [{"family": vl.from_zenodo({"id": 1, "conceptrecid": "999", "metadata": {}}),
+              "poster_json": {}} for _ in range(2)]
     stats = vl.link_families(items)
     assert stats["duplicate_files"] == 0
     assert stats["multi_version_families"] == 1
 
 
 def test_figshare_latest_settled_across_siblings():
+    posters = [{} for _ in range(3)]
     items = [
-        {"family": vl.from_figshare(figshare_record(21359946, n)), "poster_json": {}}
-        for n in (2, 1, 3)
+        {"family": vl.from_figshare(figshare_record(21359946, n)), "poster_json": pj}
+        for n, pj in zip((2, 1, 3), posters)
     ]
     vl.link_families(items)
-    latest = {i["family"].sequence: i["poster_json"]["versionInfo"]["isLatestVersion"]
-              for i in items}
-    assert latest == {1: False, 2: False, 3: True}
+    by_seq = {i["family"].sequence: i["poster_json"] for i in items}
+    assert is_latest(by_seq[1]) is False
+    assert is_latest(by_seq[2]) is False
+    assert is_latest(by_seq[3]) is True
 
 
-# --- linking behaviour -------------------------------------------------------
-
-def test_sibling_relations_point_the_right_way():
-    a = {"family": vl.from_figshare(figshare_record(100, 1)), "poster_json": {}}
-    b = {"family": vl.from_figshare(figshare_record(100, 2)), "poster_json": {}}
-    vl.link_families([a, b])
-
-    def rel(item, kind):
-        return [r["relatedIdentifier"] for r in item["poster_json"]["relatedIdentifiers"]
-                if r["relationType"] == kind]
-
-    assert rel(a, "IsPreviousVersionOf") == ["10.6084/m9.figshare.100.v2"]
-    assert rel(a, "IsNewVersionOf") == []
-    assert rel(b, "IsNewVersionOf") == ["10.6084/m9.figshare.100.v1"]
-    assert rel(b, "IsPreviousVersionOf") == []
-
-
-def test_concept_doi_emitted_as_is_version_of():
-    items = [
-        {"family": vl.from_zenodo(zenodo_record(1, "10.5281/zenodo.1", 0, False)),
-         "poster_json": {}},
-        {"family": vl.from_zenodo(zenodo_record(2, "10.5281/zenodo.2", 1, True)),
-         "poster_json": {}},
-    ]
-    vl.link_families(items)
-    for item in items:
-        anchors = [r["relatedIdentifier"] for r in item["poster_json"]["relatedIdentifiers"]
-                   if r["relationType"] == "IsVersionOf"]
-        assert anchors == ["10.5281/zenodo.10572542"]
-
-
-def test_synthetic_root_is_not_emitted_as_a_related_identifier():
-    """figshare:article:100 is not a resolvable identifier."""
-    items = [
-        {"family": vl.from_figshare(figshare_record(100, n)), "poster_json": {}}
-        for n in (1, 2)
-    ]
-    vl.link_families(items)
-    for item in items:
-        idents = [r["relatedIdentifier"] for r in item["poster_json"]["relatedIdentifiers"]]
-        assert not any(i.startswith("figshare:") for i in idents)
-        assert item["poster_json"]["versionInfo"]["versionRoot"] == "figshare:article:100"
-
+# --- idempotence and cleanup -------------------------------------------------
 
 def test_depositor_relations_are_preserved():
     poster = {"relatedIdentifiers": [
@@ -296,88 +382,70 @@ def test_depositor_relations_are_preserved():
 
 
 def test_linking_is_idempotent():
-    def build():
-        return [
-            {"family": vl.from_figshare(figshare_record(100, n)), "poster_json": {}}
-            for n in (1, 2, 3)
-        ]
+    def run():
+        posters = [{} for _ in range(3)]
+        items = [{"family": vl.from_figshare(figshare_record(100, n)), "poster_json": pj}
+                 for n, pj in zip((1, 2, 3), posters)]
+        vl.link_families(items)
+        return posters
 
-    once = build()
-    vl.link_families(once)
-    snapshot = [i["poster_json"] for i in once]
-
-    twice = [{"family": vl.from_figshare(figshare_record(100, n)),
-              "poster_json": dict(p)} for n, p in zip((1, 2, 3), snapshot)]
-    vl.link_families(twice)
-    assert [i["poster_json"] for i in twice] == snapshot
-
-
-def test_relinking_after_reharvest_drops_stale_sibling_links():
-    """A version removed upstream must not leave a dangling pointer."""
-    items = [{"family": vl.from_figshare(figshare_record(100, n)), "poster_json": {}}
-             for n in (1, 2)]
+    once = run()
+    twice = [dict(p) for p in once]
+    items = [{"family": vl.from_figshare(figshare_record(100, n)), "poster_json": pj}
+             for n, pj in zip((1, 2, 3), twice)]
     vl.link_families(items)
-    survivor = items[0]["poster_json"]
-    assert any(r["relationType"] == "IsPreviousVersionOf"
-               for r in survivor["relatedIdentifiers"])
-
-    again = [{"family": vl.from_figshare(figshare_record(100, 1)),
-              "poster_json": survivor}]
-    vl.link_families(again)
-    assert "relatedIdentifiers" not in survivor
-    assert "versionInfo" not in survivor
-    # No stale sequence left behind from the family it no longer belongs to.
-    assert "version" not in survivor
+    assert twice == once
 
 
-def test_depositor_version_string_is_never_overwritten():
-    """`version` belongs to the depositor. Ordering lives in versionSequence.
-
-    Zenodo's version field is free text and commonly holds a date, so
-    overwriting it with our sequence would destroy real metadata to duplicate
-    something already published in versionInfo.
-    """
-    poster = {"version": "2024-08-02"}
+def test_relinking_replaces_our_own_stale_sibling_links():
+    """Re-running after a re-harvest converges instead of accumulating links."""
+    survivor = {}
     items = [
-        {"family": vl.from_zenodo(zenodo_record(1, "10.5281/zenodo.1", 1, False)),
-         "poster_json": poster},
-        {"family": vl.from_zenodo(zenodo_record(2, "10.5281/zenodo.2", 2, True)),
-         "poster_json": {}},
+        {"family": vl.from_figshare(figshare_record(100, 1)), "poster_json": survivor},
+        {"family": vl.from_figshare(figshare_record(100, 2)), "poster_json": {}},
     ]
     vl.link_families(items)
-    assert poster["version"] == "2024-08-02"
-    assert poster["versionInfo"]["versionSequence"] == 2
+    assert rel(survivor, "IsPreviousVersionOf") == ["10.6084/m9.figshare.100.v2"]
 
-    # The sibling disappears upstream and the record stands alone again.
-    solo = vl.from_zenodo(zenodo_record(1, "10.5281/zenodo.1", 0, True))
-    vl.link_families([{"family": solo, "poster_json": poster}])
-    assert poster["version"] == "2024-08-02"
-    assert "versionInfo" not in poster
+    # A third version appears. The forward link must move, not duplicate.
+    items = [
+        {"family": vl.from_figshare(figshare_record(100, n)), "poster_json": pj}
+        for n, pj in ((1, survivor), (2, {}), (3, {}))
+    ]
+    vl.link_families(items)
+    assert rel(survivor, "IsPreviousVersionOf") == ["10.6084/m9.figshare.100.v2"]
+    assert len(rel(survivor, "IsVersionOf")) == 1
 
 
-def test_solitary_first_version_is_left_byte_identical():
-    """The common case must not be rewritten at all, relations included."""
-    poster = {
-        "titles": [{"title": "A poster"}],
-        "version": "1.0",
-        "relatedIdentifiers": [
-            {"relatedIdentifier": "10.1234/paper", "relatedIdentifierType": "DOI",
-             "relationType": "IsSupplementTo"},
-        ],
-    }
+def test_depositor_version_relations_are_never_deleted():
+    """Depositors declare their own version relations and the corpus has them.
+
+    Record 12681959 arrived with its own IsVersionOf. An earlier draft stripped
+    every version relation before rewriting and destroyed 25 of these.
+    """
+    # Solitary record: we assert nothing, so we touch nothing.
+    solo = {"relatedIdentifiers": [
+        {"relatedIdentifier": "10.5281/zenodo.8045979", "relatedIdentifierType": "DOI",
+         "relationType": "IsVersionOf"},
+    ]}
     import copy
-    original = copy.deepcopy(poster)
-    item = {"family": vl.from_figshare(figshare_record(100, 1)), "poster_json": poster}
-    vl.link_families([item])
-    assert poster == original
+    untouched = copy.deepcopy(solo)
+    vl.link_families([{"family": vl.from_figshare(figshare_record(100, 1)),
+                       "poster_json": solo}])
+    assert solo == untouched
 
-
-def test_solitary_version_one_record_is_left_alone():
-    """The overwhelmingly common case: one deposit, one version, no annotation."""
-    poster = {"titles": [{"title": "A poster"}]}
-    item = {"family": vl.from_figshare(figshare_record(100, 1)), "poster_json": poster}
-    vl.link_families([item])
-    assert poster == {"titles": [{"title": "A poster"}]}
+    # Record in a real family: our own links are rewritten, theirs survives.
+    poster = {"relatedIdentifiers": [
+        {"relatedIdentifier": "https://example.org/an-older-poster",
+         "relatedIdentifierType": "URL", "relationType": "IsNewVersionOf"},
+    ]}
+    items = [
+        {"family": vl.from_figshare(figshare_record(200, 1)), "poster_json": poster},
+        {"family": vl.from_figshare(figshare_record(200, 2)), "poster_json": {}},
+    ]
+    vl.link_families(items)
+    assert "https://example.org/an-older-poster" in rel(poster, "IsNewVersionOf")
+    assert rel(poster, "IsPreviousVersionOf") == ["10.6084/m9.figshare.200.v2"]
 
 
 def test_separate_families_do_not_cross_link():
@@ -407,7 +475,7 @@ def test_normalized_dois_group_the_same_family():
     a = vl.from_zenodo({**zenodo_record(1, "https://doi.org/10.5281/zenodo.1", 0, False),
                         "conceptdoi": "https://doi.org/10.5281/ZENODO.10572542"})
     b = vl.from_zenodo(zenodo_record(2, "10.5281/zenodo.2", 1, True))
-    assert a.root == b.root
+    assert a.group_key == b.group_key
 
 
 # --- dispatch and schema conformance ----------------------------------------
@@ -421,8 +489,7 @@ def test_from_record_dispatch():
 def test_emitted_relations_use_only_schema_allowed_keys():
     allowed = {"relatedIdentifier", "relatedIdentifierType", "relationType",
                "resourceTypeGeneral"}
-    items = [{"family": vl.from_zenodo(zenodo_record(i, f"10.5281/zenodo.{i}", i - 1,
-                                                     i == 2)),
+    items = [{"family": vl.from_zenodo(zenodo_record(i, f"10.5281/zenodo.{i}", i - 1, i == 2)),
               "poster_json": {}} for i in (1, 2)]
     vl.link_families(items)
     for item in items:
@@ -430,14 +497,14 @@ def test_emitted_relations_use_only_schema_allowed_keys():
             assert set(r) <= allowed, set(r) - allowed
 
 
-def test_version_info_survives_conform_to_schema():
+def test_output_survives_conform_to_schema():
+    """conform_to_schema must not strip what we write, because it is all schema."""
     from poster_to_json.field_normalize import conform_to_schema
 
-    items = [{"family": vl.from_zenodo(zenodo_record(i, f"10.5281/zenodo.{i}", i - 1,
-                                                     i == 2)),
+    items = [{"family": vl.from_zenodo(zenodo_record(i, f"10.5281/zenodo.{i}", i - 1, i == 2)),
               "poster_json": {}} for i in (1, 2)]
     vl.link_families(items)
     record = items[0]["poster_json"]
+    before = [dict(r) for r in record["relatedIdentifiers"]]
     conform_to_schema(record)
-    assert "versionInfo" in record
-    assert record["versionInfo"]["versionSequence"] == 1
+    assert record["relatedIdentifiers"] == before

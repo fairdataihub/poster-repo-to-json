@@ -517,7 +517,7 @@ class SchemaConverter:
         # later; this records the family key and position for a single record.
         family = version_linking.from_zenodo(record)
         if family:
-            version_linking.apply_version_info(result, family)
+            version_linking.apply_version_links(result, family)
 
         return self._ensure_required_fields(result)
 
@@ -714,7 +714,7 @@ class SchemaConverter:
         # harvested siblings.
         family = version_linking.from_figshare(record)
         if family:
-            version_linking.apply_version_info(result, family)
+            version_linking.apply_version_links(result, family)
 
         return self._ensure_required_fields(result)
 

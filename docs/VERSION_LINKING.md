@@ -79,87 +79,106 @@ Figshare publishes no flag at all; the same rule settles it.
 
 **One version can be more than one file.** A poster re-ingested in a later
 harvest batch appears twice in the corpus under the same DOI. Those files are
-the same version, not siblings. They collapse to one slot for sequencing,
-neighbours and `versionCount`, and every file still gets annotated. Without
-this, a record cross-links to itself and reports a family of two.
+the same version, not siblings. They collapse to one slot for ordering and
+neighbour links, and every file is still annotated. Without this, a record
+cross-links to itself and reports a family of two.
 
 ## What gets written
 
-Two representations of the same facts, because they serve different readers.
-
-**DataCite relations**, in `relatedIdentifiers`, for anyone consuming the poster
-JSON as DataCite:
+Only fields the poster schema already defines. Version linking adds no new
+fields and needs no schema change.
 
 ```json
 "relatedIdentifiers": [
-  {"relatedIdentifier": "10.5281/zenodo.10572542",
+  {"relatedIdentifier": "10.5281/zenodo.7853234",
    "relatedIdentifierType": "DOI",
    "relationType": "IsVersionOf",
    "resourceTypeGeneral": "Text"},
-  {"relatedIdentifier": "10.5281/zenodo.13168995",
+  {"relatedIdentifier": "10.5281/zenodo.7853235",
    "relatedIdentifierType": "DOI",
    "relationType": "IsNewVersionOf",
    "resourceTypeGeneral": "Text"}
 ]
 ```
 
-`IsVersionOf` anchors the record to the family. `IsNewVersionOf` points at the
+`IsVersionOf` anchors the record to its family. `IsNewVersionOf` points at the
 older harvested sibling, `IsPreviousVersionOf` at the newer one. Where the
 harvest has a gap the neighbour link skips it rather than inventing a DOI.
 
-Relations alone cannot express everything, which is why there is a second form.
-A record that Zenodo says is not the latest, whose newer sibling we have not
-harvested, has no DOI to point at and no way to say "not latest" in DataCite.
+The family anchor is a real, resolvable DOI in both repositories. Zenodo
+publishes it as the concept DOI. Figshare has no concept DOI, but the article
+DOI with the `.vN` suffix removed is registered with DataCite, is findable, and
+resolves to the latest version, so it serves the same role:
+`10.6084/m9.figshare.21359946.v1` anchors to `10.6084/m9.figshare.21359946`.
 
-**`versionInfo`**, a plain object the ingest can read straight into its columns:
+A small number of records (23 on the corpus) have no such DOI, mostly
+institutional deposits carrying a Handle. Those are grouped internally by a
+repository-scoped key such as `figshare:article:21359946`, which is never
+written to a poster because it is not an identifier anyone can resolve. Their
+siblings still link to each other directly.
 
-```json
-"versionInfo": {
-  "versionRoot": "10.5281/zenodo.10572542",
-  "versionRootType": "DOI",
-  "versionSequence": 3,
-  "isLatestVersion": true,
-  "versionCount": 2,
-  "versionSource": "zenodo-relations",
-  "repositoryVersion": "2025-10-24"
-}
-```
-
-`versionRoot` is the concept DOI when one exists. When it does not, it is a
-repository-scoped key (`zenodo:recid:10572542`, `figshare:article:21359946`).
-Those keys group correctly but are not resolvable identifiers, so they appear
-here only and never as a `relatedIdentifier`.
-
-`versionCount` is how many members of the family we hold, which is not
-necessarily how many exist upstream. `versionSource` records which signal
-produced the family, for QA.
+Depositor-declared version relations are preserved. Only relations pointing at a
+DOI in the record's own computed family are rewritten, that being the exact set
+we emit; anything pointing elsewhere is the depositor's and stays. An earlier
+draft stripped every version relation before rewriting and destroyed 25 of them,
+including record 12681959, which arrived with its own `IsVersionOf`. Records we
+assert nothing about are not touched at all, because at that point a stale link
+from an old run is indistinguishable from a relation the depositor declared, and
+deleting theirs is the worse error.
 
 The top-level `version` field is left alone. It belongs to the depositor, and
 Zenodo lets them write anything in it: both records in the worked example hold a
-date, and one record in the corpus holds the string `Posters.science automated`.
-It cannot drive ordering, and the ordering already has a home in
-`versionInfo.versionSequence`, which is what the platform reads. Overwriting
-`version` would destroy real metadata to duplicate something published two
-fields away. Cleaning up junk version strings is a field-normalization job, not
-this one.
+date, and one record in the corpus reads `Posters.science automated`. It cannot
+carry ordering, and overwriting it would destroy real metadata. Cleaning up junk
+version strings is a field-normalization job, not this one.
 
-The schema already permits all of this: `relatedIdentifiers` accepts the four
-DataCite version relations, and the root object is `additionalProperties: true`.
-No schema change is required, though `versionInfo` is worth documenting in
-[poster-json-schema](https://github.com/fairdataihub/poster-json-schema).
+### An earlier draft of this feature added a `versionInfo` object
+
+It carried `versionRoot`, `versionSequence`, `isLatestVersion`, `versionCount`
+and `versionSource` as plain scalars. It was dropped, because measuring it
+against the corpus showed it was almost entirely redundant:
+
+| Field | Recoverable from the existing schema? |
+| --- | --- |
+| `versionRoot` | Yes, in full: it is the `IsVersionOf` target |
+| `isLatestVersion` | Yes, in full: true when no `IsPreviousVersionOf` is present. Checked against all 2,244 annotated records, with zero counterexamples |
+| `versionSequence` | No |
+| `versionCount`, `versionSource` | Not consumed by the platform; QA only |
+
+The argument for the object had been that relations cannot express "not the
+latest" when the newer sibling was never harvested. That case does not occur:
+every record whose repository flag was stale had its successor in the corpus,
+which is what made the flag detectably stale in the first place.
+
+That leaves `versionSequence` as the only genuinely unexpressible piece, and it
+is not worth a new field. The platform can number a chain itself. The cost is
+that a lone upstream-v3 ingests as sequence 1 and would need renumbering if a
+later harvest fills the gap, against `@@unique([versionRootId, versionSequence])`.
+Sequence is still computed here, and still used to order siblings correctly and
+to detect stale latest flags. It is simply not published.
 
 ## Mapping to the platform
 
 | poster.json | Prisma column |
 | --- | --- |
-| `versionInfo.versionRoot` | resolve to the family's row, set `versionRootId` (null on the root itself) |
-| `versionInfo.versionSequence` | `versionSequence` |
-| `versionInfo.isLatestVersion` | `isLatestVersion` |
-| absent `versionInfo` | root row, sequence 1, latest true |
+| `IsVersionOf` target | resolve to the family's row, set `versionRootId` (null on the root itself) |
+| no `IsPreviousVersionOf` present | `isLatestVersion` true |
+| position in the `IsNewVersionOf` / `IsPreviousVersionOf` chain | `versionSequence` |
+| no version relations at all | root row, sequence 1, latest true |
 
-Sequences can have gaps where a version was never harvested. That is compatible
-with `@@unique([versionRootId, versionSequence])` and is the point: filling the
-gap later does not renumber anything that already exists.
+Two things to know before ingesting.
+
+**A family may have no sequence-1 row.** 2,210 records are the only version of
+their family we hold, and it is not the first: we have v2 or later and the
+earlier versions were never harvested. Their `IsVersionOf` DOI exists upstream
+but has no row in our data to point `versionRootId` at. Either the lowest
+sequence present acts as the root, or the anchor DOI is stored without a row.
+
+**Numbering from the chain is not the repository's numbering.** A lone
+upstream-v3 will number as 1. That is fine until a later harvest brings in v1
+and v2, at which point the rows need renumbering against
+`@@unique([versionRootId, versionSequence])`. Worth deciding up front whether
+that matters enough to store the repository sequence after all.
 
 ## Running it
 
@@ -183,9 +202,9 @@ python scripts/post_processing/link_versions.py \
 
 Pass `--raw` when you have the harvested metadata: Zenodo's version graph lives
 there and nowhere else. It accepts a directory of per-record JSON, which is how
-the harvest sits on disk, as well as ndjson or a JSON array. Without it the
-script falls back to `versionInfo` already on the poster JSON, which works for
-corpora converted with 0.39.0 or later.
+the harvest sits on disk, as well as ndjson or a JSON array. It is required: the
+poster JSON carries the resulting relations but not the sequence they were
+derived from, so a corpus cannot be relinked from its own output.
 
 **Pass every corpus slice that could share a family in one run.** All 16
 multi-version families on the corpus span the pre2025 and data2025 batches,
@@ -195,7 +214,7 @@ Linking the batches separately finds nothing.
 
 ## Result on the corpus
 
-Run on 2026-09-02 against 31,363 posters and 39,471 raw harvested records:
+Run on 2026-09-03 against 31,363 posters and 39,471 raw harvested records:
 
 | | |
 | --- | ---: |
@@ -207,7 +226,8 @@ Run on 2026-09-02 against 31,363 posters and 39,471 raw harvested records:
 | Lone later versions (we hold v2+, earlier never harvested) | 2,210 |
 | Stale latest flags corrected | 16 |
 | Duplicate files collapsed | 12 |
-| Files written | 2,242 |
+| Records with no resolvable family DOI | 23 |
+| Files written | 2,219 |
 
 The 2,210 lone later versions are the largest group and are not an error. The
 harvester picks up the current state of a deposit, not its history, so a poster

@@ -5,84 +5,104 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.39.0] - 2026-09-02
+## [0.39.0] - 2026-09-03
 
 ### Added
 - **Version linking for auto-indexed posters** (`src/poster_to_json/version_linking.py`).
   Auto-indexing harvests each repository version as its own record, so a poster deposited
   twice as v1 and v2 appeared in the corpus as two unrelated posters. Every version is still
-  kept; they are now identified as a family and linked. Mirrors the versioning model added to
-  the platform in posters-science PR #49 (`versionRootId` / `versionSequence` /
-  `isLatestVersion`), so the ingest can populate those columns without re-deriving anything.
+  kept; they are now identified as a family and linked, so the platform can populate the
+  versioning model added in posters-science PR #49 (`versionRootId` / `versionSequence` /
+  `isLatestVersion`).
 
-  Each record in a family gets:
-  - `relatedIdentifiers` entries using the DataCite version relations: `IsVersionOf` pointing
-    at the Zenodo concept DOI, and `IsNewVersionOf` / `IsPreviousVersionOf` pointing at the
-    harvested siblings.
-  - A `versionInfo` object holding the same facts as scalars: `versionRoot`,
-    `versionRootType`, `versionSequence`, `isLatestVersion`, `versionCount` and
-    `versionSource`.
+  **Only fields the poster schema already defines are written.** No new fields, no schema
+  change. Each record in a family gets `relatedIdentifiers` entries using the DataCite version
+  relations: `IsVersionOf` pointing at the family's DOI, and `IsNewVersionOf` /
+  `IsPreviousVersionOf` pointing at the harvested siblings. The platform reads its three
+  columns straight off those: the root from the `IsVersionOf` target, `isLatestVersion` from
+  the absence of an `IsPreviousVersionOf`, and the sequence from position in the chain.
 
-  `version` is never written. That field is the depositor's own statement, Zenodo lets them
-  put anything in it (dates and free text are both common), and the machine-readable position
-  belongs in `versionInfo.versionSequence` where the platform reads it. Overwriting `version`
-  would destroy real metadata to duplicate something we already publish.
+  The family anchor is a real resolvable DOI in both repositories. Zenodo publishes it as the
+  concept DOI; Figshare has no concept DOI, but the article DOI with the `.vN` suffix removed
+  is registered with DataCite and resolves to the latest version, so it serves the same role.
+  The 23 records with neither are grouped by an internal repository-scoped key that is never
+  written to a poster.
 
-  Sequence and latest-flag come from the repository, never from local ordering. Zenodo's
-  `relations.version[].index` counts the whole family, and our harvest can have gaps: concept
-  10572542 gives us index 1 and index 2 while index 0 was never indexed, so those records are
-  version 2 and version 3, not 1 and 2. Records that are the only known version of their
-  family are left byte-identical.
+  `version` is never touched. It is the depositor's own statement, Zenodo lets them put
+  anything in it (dates are common, and one corpus record reads "Posters.science automated"),
+  and it cannot carry ordering. Cleaning up junk version strings is a field-normalization job.
+
+  Sequence comes from the repository, never from local ordering. Zenodo's
+  `relations.version[].index` counts the whole family and our harvest has gaps: concept
+  10572542 gives us index 1 and index 2 while index 0 was never indexed. The sequence orders
+  siblings and detects stale flags; it is not published.
 
   A repository's latest-flag is only true as of harvest time, and our stored metadata is a
   snapshot. A record harvested while it was newest keeps claiming to be latest, so holding a
-  higher sequence in the same family is treated as proof the flag went stale. Only the highest
-  sequence we hold keeps the repository's own answer, which is what preserves the case where
-  Zenodo reports a newer version we never indexed. This corrected 16 stale flags on the corpus.
+  higher sequence in the same family is treated as proof the flag went stale. This corrected
+  16 flags.
 
-  One version can also be more than one file, when a poster was re-ingested in a later harvest
-  batch under the same DOI. Those files are the same version rather than siblings: they
-  collapse to one slot for sequencing, neighbours and `versionCount`, and every file still gets
-  annotated.
+  One version can be more than one file, when a poster was re-ingested in a later harvest
+  batch under the same DOI. Those files are the same version, not siblings: they collapse to
+  one slot for ordering and neighbour links, and every file is still annotated.
+
+  Records that are the only known version of their family, at sequence 1 with nothing newer
+  upstream, are left byte-identical.
+
+  Depositor-declared version relations are preserved. Only relations pointing at a DOI in the
+  record's own computed family are rewritten, that being the exact set we emit. An earlier
+  draft stripped every version relation before rewriting, which destroyed 25 depositor-declared
+  ones (record 12681959 arrived with its own `IsVersionOf`). Verified against the pre-run
+  backup: 2,219 records changed, 0 lost a relation.
 
 - **`scripts/post_processing/link_versions.py`** links families across an existing corpus,
-  which per-record conversion cannot do because it sees one deposit at a time. Reads version
-  graphs from the raw harvest (`--raw`, accepting a directory of per-record JSON as well as
-  ndjson), falls back to `versionInfo` already on the poster JSON, and supports `--dry-run`,
-  `--out` and `--report`. Idempotent: relinking converges rather than accumulating stale
-  sibling pointers.
+  which per-record conversion cannot do because it sees one deposit at a time. `--raw` is
+  required (the version graph exists only in the raw harvest) and accepts a directory of
+  per-record JSON as well as ndjson. Supports `--dry-run`, `--out` and `--report`, and is
+  idempotent.
 
   `--corpus` is repeatable and every slice that could share a family must be in one run. This
-  is not a convenience: all 16 multi-version families found on the corpus span the pre2025 and
+  is not a convenience: all 16 multi-version families on the corpus span the pre2025 and
   data2025 harvest batches, because a poster deposited in one year and revised in a later one
   has its versions in different batches by construction. Linking the batches separately finds
   nothing.
 
-### Corpus run (2026-09-02)
+### Changed
+- **`version` is a deposit-only field in the merger.** Which version of a deposit a poster is
+  is something only the repository knows; a version string read off the poster face is
+  unrelated, so extraction can no longer contribute it.
+
+### Corpus run (2026-09-03)
 
 Run against `/storage/poster-work/{pre2025,data2025}/merged` on hpcf, 31,363 posters against
 39,471 raw harvested records:
 
 ```
-records with a version signal : 31,147   (216 without)
-distinct families             : 31,119
-families with >1 version held :      16   (32 records, all spanning both batches)
-lone later versions           :   2,210   (we hold v2+, earlier versions never harvested)
-stale latest flags corrected  :      16
-duplicate files collapsed     :      12
-files written                 :   2,242
+records with a version signal  : 31,147   (216 without)
+distinct families              : 31,119
+families with >1 version held  :      16   (32 records, all spanning both batches)
+lone later versions            :   2,210   (we hold v2+, earlier versions never harvested)
+stale latest flags corrected   :      16
+duplicate files collapsed      :      12
+records with no family DOI     :      23
+files written                  :   2,219
 ```
 
 Verified idempotent on a second pass (0 files written) and spot-checked against the live
 Zenodo API.
 
-### Changed
-- **`version` and `versionInfo` are deposit-only fields in the merger.** Which version of a
-  deposit a poster is, and what family it belongs to, is something only the repository knows.
-  A version string read off the poster face is unrelated and would corrupt the ordering, so
-  extraction can no longer contribute either field.
-
 ### Notes
+- An earlier draft of this feature wrote a `versionInfo` object holding `versionRoot`,
+  `versionSequence`, `isLatestVersion`, `versionCount` and `versionSource`. It was dropped
+  before release. `versionInfo` is not in the poster schema, and measuring it against the
+  corpus showed it was almost entirely redundant: `versionRoot` is the `IsVersionOf` target,
+  and `isLatestVersion` is derivable from the absence of an `IsPreviousVersionOf` on all
+  annotated records with zero counterexamples. The stated justification for the object,
+  that relations cannot express "not the latest" when the newer sibling was never harvested,
+  turned out not to occur in the data. Only `versionSequence` is genuinely unexpressible, and
+  the platform can number a chain itself. Trade-off: a lone upstream-v3 ingests as sequence 1
+  and needs renumbering if a later harvest fills the gap.
+
 - Scope is repository-declared version families only. Posters deposited twice under separate
   DOIs, and posters cross-posted to both Zenodo and Figshare, are duplicates rather than
   versions and are not touched here. That population is larger (822 groups covering 1,764

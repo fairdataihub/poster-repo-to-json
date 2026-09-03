@@ -108,7 +108,6 @@ class MetadataMerger:
         "dates",
         "fundingReferences",
         "version",
-        "versionInfo",
     })
 
     # Fields the extraction must NEVER contribute. The license/rights of a
@@ -116,14 +115,12 @@ class MetadataMerger:
     # never from the LLM reading the poster. If the deposit declares no license,
     # any extraction-fabricated rightsList is dropped rather than kept: older
     # extractions misfiled funding/acknowledgements/citations into rights.
-    # version/versionInfo are the same kind of fact. Which version of a deposit
-    # this is, and what family it belongs to, is something only the repository
-    # knows; a version string read off the poster face is unrelated to it and
-    # would corrupt the ordering.
+    # version is the same kind of fact: which version of a deposit this is, is
+    # something only the repository knows. A version string read off the poster
+    # face is unrelated to it.
     DEPOSIT_ONLY_FIELDS = frozenset({
         "rightsList",
         "version",
-        "versionInfo",
     })
 
     METADATA_FIELDS = [
@@ -144,7 +141,6 @@ class MetadataMerger:
         "fundingReferences",
         "relatedIdentifiers",
         "version",
-        "versionInfo",
     ]
 
     def merge(self, extraction: Dict, metadata: Dict) -> Dict:
