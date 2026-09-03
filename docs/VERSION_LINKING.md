@@ -141,7 +141,7 @@ against the corpus showed it was almost entirely redundant:
 | Field | Recoverable from the existing schema? |
 | --- | --- |
 | `versionRoot` | Yes, in full: it is the `IsVersionOf` target |
-| `isLatestVersion` | Yes, in full: true when no `IsPreviousVersionOf` is present. Checked against all 2,244 annotated records, with zero counterexamples |
+| `isLatestVersion` | Yes, in full: true when no `IsPreviousVersionOf` is present. Checked against every annotated record, with zero counterexamples |
 | `versionSequence` | No |
 | `versionCount`, `versionSource` | Not consumed by the platform; QA only |
 
