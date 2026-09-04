@@ -93,13 +93,17 @@ fields and needs no schema change.
   {"relatedIdentifier": "10.5281/zenodo.7853234",
    "relatedIdentifierType": "DOI",
    "relationType": "IsVersionOf",
-   "resourceTypeGeneral": "Text"},
+   "resourceTypeGeneral": "Poster"},
   {"relatedIdentifier": "10.5281/zenodo.7853235",
    "relatedIdentifierType": "DOI",
    "relationType": "IsNewVersionOf",
-   "resourceTypeGeneral": "Text"}
+   "resourceTypeGeneral": "Poster"}
 ]
 ```
+
+`resourceTypeGeneral` is `Poster`: the related resource is another version of
+this poster. Our schema follows DataCite 4.7, whose resourceType enum includes
+`Poster`, so the pre-4.7 habit of typing a poster as `Text` does not apply.
 
 `IsVersionOf` anchors the record to its family. `IsNewVersionOf` points at the
 older harvested sibling, `IsPreviousVersionOf` at the newer one. Where the

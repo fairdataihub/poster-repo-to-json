@@ -318,12 +318,16 @@ def apply_version_links(
         if key in seen:
             return
         seen.add(key)
+        # The related resource is another version of this poster, so it is a
+        # Poster. Our schema follows DataCite 4.7, whose resourceType enum
+        # includes "Poster"; the pre-4.7 practice of typing a poster as "Text"
+        # does not apply here.
         relations.append(
             {
                 "relatedIdentifier": ident,
                 "relatedIdentifierType": "DOI",
                 "relationType": relation,
-                "resourceTypeGeneral": "Text",
+                "resourceTypeGeneral": "Poster",
             }
         )
 

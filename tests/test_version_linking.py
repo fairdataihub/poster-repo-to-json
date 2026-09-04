@@ -486,7 +486,11 @@ def test_from_record_dispatch():
     assert vl.from_record({}, "unknown") is None
 
 
-def test_emitted_relations_use_only_schema_allowed_keys():
+def test_emitted_relations_type_the_sibling_as_a_poster():
+    """The related resource is another version of this poster, so it is a Poster.
+
+    DataCite 4.7, which our schema follows, has Poster in the resourceType enum.
+    """
     allowed = {"relatedIdentifier", "relatedIdentifierType", "relationType",
                "resourceTypeGeneral"}
     items = [{"family": vl.from_zenodo(zenodo_record(i, f"10.5281/zenodo.{i}", i - 1, i == 2)),
@@ -495,6 +499,7 @@ def test_emitted_relations_use_only_schema_allowed_keys():
     for item in items:
         for r in item["poster_json"]["relatedIdentifiers"]:
             assert set(r) <= allowed, set(r) - allowed
+            assert r["resourceTypeGeneral"] == "Poster"
 
 
 def test_output_survives_conform_to_schema():
