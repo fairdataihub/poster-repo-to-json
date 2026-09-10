@@ -83,18 +83,30 @@ class VersionFamily:
             siblings and to detect stale latest flags. Not published.
         is_latest: True when no newer version is known. Expressed in the output
             by the absence of an ``IsPreviousVersionOf`` relation.
-        own_doi: This record's own DOI, used to cross-link siblings.
+        own_doi: This record's own DOI.
+        version_id: The version-distinct identifier used to key and cross-link
+            siblings. Normally the own DOI, but for a Figshare article whose
+            versions share one article-level DOI (old ANDS 10.4225 style, no
+            per-version .vN), it is the version-specific Figshare URL instead, so
+            the versions do not collapse into one another.
+        version_id_type: DataCite relatedIdentifierType for version_id, DOI or URL.
         source: Which signal produced the family, for logging and QA.
     """
 
-    __slots__ = ("root_doi", "group_key", "sequence", "is_latest", "own_doi", "source")
+    __slots__ = ("root_doi", "group_key", "sequence", "is_latest", "own_doi",
+                 "version_id", "version_id_type", "source")
 
-    def __init__(self, root_doi, group_key, sequence, is_latest, own_doi, source):
+    def __init__(self, root_doi, group_key, sequence, is_latest, own_doi, source,
+                 version_id=None, version_id_type="DOI"):
         self.root_doi = root_doi
         self.group_key = group_key
         self.sequence = sequence
         self.is_latest = is_latest
         self.own_doi = own_doi
+        # Default: the DOI is the version-distinct identifier (Zenodo, and
+        # Figshare with per-version .vN DOIs).
+        self.version_id = version_id if version_id else own_doi
+        self.version_id_type = version_id_type
         self.source = source
 
     def __repr__(self):  # pragma: no cover - debugging aid
@@ -217,13 +229,31 @@ def from_figshare(record: Dict) -> Optional[VersionFamily]:
     if not group_key:
         return None
 
+    # Version-distinct identity. Modern Figshare mints a per-version .vN DOI, so
+    # the DOI itself distinguishes versions and is the version id, with the base
+    # DOI as the family root. Older ANDS-minted articles (10.4225 style) carry a
+    # single article-level DOI shared by every version; there the DOI is the
+    # family root (it resolves to the latest, like a concept DOI), and the
+    # version-specific Figshare URL is what tells the versions apart.
+    if base_doi:
+        version_id, version_id_type, root_doi = own_doi, "DOI", base_doi
+    else:
+        version_url = _clean(record.get("url_public_html"))
+        if version_url:
+            version_id, version_id_type = version_url, "URL"
+        else:
+            version_id, version_id_type = own_doi, "DOI"
+        root_doi = own_doi  # the shared article DOI is the family root
+
     return VersionFamily(
-        root_doi=base_doi,
+        root_doi=root_doi,
         group_key=group_key,
         sequence=sequence,
         # Provisional. link_families settles this against harvested siblings.
         is_latest=True,
         own_doi=own_doi,
+        version_id=version_id,
+        version_id_type=version_id_type,
         source=source,
     )
 
@@ -270,10 +300,12 @@ def _strip_version_relations(poster_json: Dict, ours: Sequence[str]) -> List[Dic
 def apply_version_links(
     poster_json: Dict,
     family: VersionFamily,
-    previous_doi: Optional[str] = None,
-    next_doi: Optional[str] = None,
+    previous_id: Optional[str] = None,
+    next_id: Optional[str] = None,
     family_size: int = 1,
-    family_dois: Sequence[str] = (),
+    family_ids: Sequence[str] = (),
+    previous_type: str = "DOI",
+    next_type: str = "DOI",
 ) -> Dict:
     """Write version relations onto ``poster_json`` in place and return it.
 
@@ -281,18 +313,21 @@ def apply_version_links(
     has nothing newer upstream is left untouched, because there is nothing to
     say about it. Everything else gets the DataCite relations.
 
-    ``family_dois`` is every DOI this family could be linked to, used to
-    recognise our own previous output without touching the depositor's.
+    ``previous_id`` / ``next_id`` are the version-distinct identifiers of the
+    neighbouring versions (a DOI normally, a Figshare version URL for shared-DOI
+    articles), with their ``*_type``. ``family_ids`` is every identifier this
+    family could be linked to, used to recognise our own previous output without
+    touching the depositor's.
     """
     solitary = (
         family_size <= 1
         and family.sequence == 1
         and family.is_latest
-        and not previous_doi
-        and not next_doi
+        and not previous_id
+        and not next_id
     )
 
-    managed = list(family_dois) or [family.root_doi, previous_doi, next_doi]
+    managed = list(family_ids) or [family.root_doi, previous_id, next_id]
     original = poster_json.get("relatedIdentifiers")
 
     if solitary:
@@ -310,7 +345,7 @@ def apply_version_links(
         if isinstance(r, dict)
     }
 
-    def add(identifier: str, relation: str):
+    def add(identifier: str, relation: str, id_type: str = "DOI"):
         ident = _clean(identifier)
         if not ident:
             return
@@ -325,17 +360,21 @@ def apply_version_links(
         relations.append(
             {
                 "relatedIdentifier": ident,
-                "relatedIdentifierType": "DOI",
+                "relatedIdentifierType": id_type,
                 "relationType": relation,
                 "resourceTypeGeneral": "Poster",
             }
         )
 
-    # The family anchor. Emitted only when the repository mints a real DOI for
-    # it; our in-memory grouping keys are not identifiers anyone can resolve.
-    add(family.root_doi, REL_IS_VERSION_OF)
-    add(previous_doi, REL_IS_NEW_VERSION_OF)
-    add(next_doi, REL_IS_PREVIOUS_VERSION_OF)
+    # The family anchor, when the repository mints a resolvable DOI for it.
+    # Skipped when the root DOI equals this record's own identifier: for a
+    # shared-DOI Figshare article every version's own DOI is the article DOI, so
+    # an IsVersionOf pointing at it would be self-referential. There the sibling
+    # chain (below, via version URLs) carries the family structure instead.
+    if family.root_doi and _normalize_doi(family.root_doi) != _normalize_doi(family.own_doi):
+        add(family.root_doi, REL_IS_VERSION_OF)
+    add(previous_id, REL_IS_NEW_VERSION_OF, previous_type)
+    add(next_id, REL_IS_PREVIOUS_VERSION_OF, next_type)
 
     if relations:
         poster_json["relatedIdentifiers"] = relations
@@ -377,13 +416,13 @@ def link_families(items: Sequence[Dict]) -> Dict[str, int]:
         # once for ordering and neighbours.
         slots: Dict[str, List[Dict]] = {}
         for i, member in enumerate(members):
-            doi = member["family"].own_doi
-            slots.setdefault(doi if doi else f"\x00no-doi:{i}", []).append(member)
+            vid = member["family"].version_id
+            slots.setdefault(vid if vid else f"\x00no-id:{i}", []).append(member)
         stats["duplicate_files"] += len(members) - len(slots)
 
         ordered = sorted(
             slots.values(),
-            key=lambda group: (group[0]["family"].sequence, group[0]["family"].own_doi),
+            key=lambda group: (group[0]["family"].sequence, group[0]["family"].version_id),
         )
         size = len(ordered)
         if size > 1:
@@ -403,15 +442,15 @@ def link_families(items: Sequence[Dict]) -> Dict[str, int]:
                 family.is_latest = False
                 stats["stale_latest_corrected"] += 1
 
-        # Every DOI this family can be linked to. Used to recognise relations a
-        # previous run wrote without disturbing the depositor's own.
-        family_dois = [ordered[0][0]["family"].root_doi]
-        family_dois += [g[0]["family"].own_doi for g in ordered]
+        # Every identifier this family can be linked to. Used to recognise
+        # relations a previous run wrote without disturbing the depositor's own.
+        family_ids = [ordered[0][0]["family"].root_doi]
+        family_ids += [g[0]["family"].version_id for g in ordered]
 
         for i, group in enumerate(ordered):
             family = group[0]["family"]
-            previous_doi = ordered[i - 1][0]["family"].own_doi if i > 0 else None
-            next_doi = ordered[i + 1][0]["family"].own_doi if i < size - 1 else None
+            prev_fam = ordered[i - 1][0]["family"] if i > 0 else None
+            next_fam = ordered[i + 1][0]["family"] if i < size - 1 else None
             if not family.root_doi and (size > 1 or family.sequence > 1):
                 stats["no_root_doi"] += len(group)
             for member in group:
@@ -421,10 +460,12 @@ def link_families(items: Sequence[Dict]) -> Dict[str, int]:
                 apply_version_links(
                     member["poster_json"],
                     family,
-                    previous_doi=previous_doi,
-                    next_doi=next_doi,
+                    previous_id=prev_fam.version_id if prev_fam else None,
+                    previous_type=prev_fam.version_id_type if prev_fam else "DOI",
+                    next_id=next_fam.version_id if next_fam else None,
+                    next_type=next_fam.version_id_type if next_fam else "DOI",
                     family_size=size,
-                    family_dois=family_dois,
+                    family_ids=family_ids,
                 )
                 if member["poster_json"].get("relatedIdentifiers") != before:
                     stats["linked"] += 1

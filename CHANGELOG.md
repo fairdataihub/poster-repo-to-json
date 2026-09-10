@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.1] - 2026-09-09
+
+### Fixed
+- **Figshare articles that share one article-level DOI across versions are now linked, not
+  collapsed.** Older ANDS-minted deposits (10.4225 style) carry a single DOI for every version,
+  with no per-version `.vN`. Version linking keyed siblings by DOI, so those versions collapsed
+  into one and got no relations (observed on Adelaide article 5483821, its only occurrence in
+  the corpus). `VersionFamily` now carries a version-distinct `version_id`: the DOI where a
+  per-version DOI exists, otherwise the version-specific Figshare URL (`url_public_html`). For
+  the shared-DOI case the article DOI becomes the family root (it resolves to the latest, like
+  a Zenodo concept DOI), the sibling chain uses the version URLs typed `URL`, and the
+  self-referential `IsVersionOf` at the shared DOI is suppressed. `link_versions.py` likewise
+  disambiguates a shared DOI in its raw index by the record's version number. No behavior change
+  for Zenodo or for Figshare with per-version `.vN` DOIs.
+
 ## [0.39.0] - 2026-09-03
 
 ### Added

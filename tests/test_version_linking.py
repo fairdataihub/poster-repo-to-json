@@ -137,10 +137,54 @@ def test_figshare_falls_back_to_vn_suffix():
     assert f.source == "figshare-doi"
 
 
-def test_figshare_without_a_versioned_doi_has_no_root_doi():
+def test_figshare_shared_article_doi_uses_doi_as_root_and_url_as_version_id():
+    """Old ANDS-style articles share one article-level DOI across versions.
+
+    The article DOI resolves to the latest, so it is the family root (like a
+    concept DOI), and the version-specific Figshare URL is the version id, so
+    versions do not collapse into one another.
+    """
+    rec = {"id": 5483821, "doi": "10.4225/55/59e3f09ff1a4d", "version": 1,
+           "defined_type": 4,
+           "url_public_html": "https://adelaide.figshare.com/articles/poster/x/5483821/1"}
+    f = vl.from_figshare(rec)
+    assert f.root_doi == "10.4225/55/59e3f09ff1a4d"
+    assert f.group_key == "figshare:article:5483821"
+    assert f.version_id == "https://adelaide.figshare.com/articles/poster/x/5483821/1"
+    assert f.version_id_type == "URL"
+
+
+def test_figshare_shared_doi_versions_do_not_collapse_and_link_by_url():
+    """Three versions sharing one DOI must link as v1/v2/v3, not collapse."""
+    def rec(v):
+        return {"id": 5483821, "doi": "10.4225/55/59e3f09ff1a4d", "version": v,
+                "defined_type": 4,
+                "url_public_html": f"https://adelaide.figshare.com/articles/poster/x/5483821/{v}"}
+    posters = [{}, {}, {}]
+    items = [{"family": vl.from_figshare(rec(v)), "poster_json": pj}
+             for v, pj in zip((1, 2, 3), posters)]
+    stats = vl.link_families(items)
+    assert stats["duplicate_files"] == 0          # did NOT collapse
+    assert stats["multi_version_families"] == 1
+    v1, v2, v3 = posters
+    # sibling chain uses the version URLs, typed URL, not the shared DOI
+    assert rel(v1, "IsPreviousVersionOf") == ["https://adelaide.figshare.com/articles/poster/x/5483821/2"]
+    assert rel(v3, "IsNewVersionOf") == ["https://adelaide.figshare.com/articles/poster/x/5483821/2"]
+    for pj in posters:
+        for r in pj.get("relatedIdentifiers", []):
+            # no self-referential IsVersionOf at the shared article DOI
+            assert not (r["relationType"] == "IsVersionOf")
+            if "ersion" in r["relationType"]:
+                assert r["relatedIdentifierType"] == "URL"
+                assert r["resourceTypeGeneral"] == "Poster"
+    assert is_latest(v3) is True and is_latest(v1) is False
+
+
+def test_figshare_no_versioned_doi_and_no_url_falls_back_without_collapse_risk():
     rec = {"id": 777, "doi": "10.6084/m9.figshare.777", "version": 1, "defined_type": 4}
     f = vl.from_figshare(rec)
-    assert f.root_doi == ""
+    assert f.root_doi == "10.6084/m9.figshare.777"
+    assert f.version_id == "10.6084/m9.figshare.777"  # no url, falls back to DOI
     assert f.group_key == "figshare:article:777"
 
 

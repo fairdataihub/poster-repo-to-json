@@ -106,7 +106,13 @@ def _iter_raw(paths):
 
 
 def build_raw_index(paths):
-    """Map normalized DOI -> VersionFamily, from raw Zenodo/Figshare records."""
+    """Map normalized DOI -> VersionFamily, from raw Zenodo/Figshare records.
+
+    Normally a DOI is unique per version, so the value is a single VersionFamily.
+    Some Figshare articles (old ANDS 10.4225 style) share one article-level DOI
+    across every version; there the value becomes ``{sequence: VersionFamily}``
+    and the caller disambiguates by the record's version number.
+    """
     index = {}
     counts = Counter()
     for rec in _iter_raw(paths):
@@ -123,11 +129,34 @@ def build_raw_index(paths):
         if not family or not family.own_doi:
             counts[f"{source}:no-family"] += 1
             continue
-        index[family.own_doi] = family
+        existing = index.get(family.own_doi)
+        if existing is None:
+            index[family.own_doi] = family
+        else:
+            if not isinstance(existing, dict):
+                index[family.own_doi] = {existing.sequence: existing}
+            index[family.own_doi][family.sequence] = family
+            counts["shared-doi-collision"] += 1
         counts[f"{source}:indexed"] += 1
     if counts:
         logger.info("raw index: %s", dict(counts))
     return index
+
+
+def _resolve_family(entry, poster_json):
+    """Pick the VersionFamily for a merged record from an index entry.
+
+    A plain entry is the family. A dict entry means the DOI is shared across
+    versions; disambiguate by the merged record's own version number.
+    """
+    if not isinstance(entry, dict):
+        return entry
+    v = poster_json.get("version")
+    try:
+        seq = int(str(v).strip())
+    except (TypeError, ValueError):
+        return None
+    return entry.get(seq)
 
 
 def _own_doi(poster_json):
@@ -187,7 +216,7 @@ def main():
             continue
 
         doi = _own_doi(poster_json)
-        family = raw_index.get(doi) if doi else None
+        family = _resolve_family(raw_index.get(doi), poster_json) if doi else None
         if not family:
             stats["no-version-signal"] += 1
             continue
