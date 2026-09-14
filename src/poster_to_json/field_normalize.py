@@ -1648,11 +1648,18 @@ _VERSION_SPAM_RE = re.compile(
     r"(?:service|care|support)|phone\s+num|complete\s+list\s+of|1[-\s]?800)\b",
     re.I,
 )
+# The posters.science auto-registration stamp. Verified NOT a repository version:
+# the raw Zenodo/Figshare deposit carries no version for these records, so the
+# string was injected by the platform's auto-registration, not supplied by the
+# repository. It is never a real version designator and is always dropped.
+_VERSION_PLATFORM_STAMP_RE = re.compile(r"^posters\.science\s+automated$", re.I)
 
 
 def _version_is_junk(v: str) -> bool:
     s = v.strip()
     if not s:
+        return True
+    if _VERSION_PLATFORM_STAMP_RE.match(s):
         return True
     if re.match(r"https?://|www\.", s, re.I):
         return True
@@ -1662,10 +1669,10 @@ def _version_is_junk(v: str) -> bool:
 
 
 def normalize_version(record: dict) -> bool:
-    """Drop a top-level `version` that is clearly not a version: a URL, an over-long
-    sentence (>25 chars), or spam (trademark symbol / phone-number-like run / marketing
-    phrasing). Short plausible versions ("1.0","v2","1.2.3","2019-03") are kept.
-    Idempotent."""
+    """Drop a top-level `version` that is clearly not a version: the posters.science
+    auto-registration stamp, a URL, an over-long sentence (>25 chars), or spam
+    (trademark symbol / phone-number-like run / marketing phrasing). Short plausible
+    versions ("1.0","v2","1.2.3","2019-03") are kept. Idempotent."""
     v = record.get("version")
     if not isinstance(v, str):
         return False

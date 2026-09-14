@@ -631,7 +631,10 @@ def test_normalize_version():
     for val in ("https://www.researchgate.net/publication/385782798_x", "www.example.com/v/2",
                 "Aktualisierte Version auf Basis von Vierkant et al. (2019). Fassung.",
                 "Complete List Of United Airlines(TM) Customer Service", "Call now 1-800-555-1234",
-                "18005551234", "   ", "This is the second revised edition of the work"):
+                "18005551234", "   ", "This is the second revised edition of the work",
+                # posters.science auto-registration stamp: never a repository version
+                "Posters.science automated", "posters.science automated",
+                "POSTERS.SCIENCE AUTOMATED", "Posters.science  automated"):
         rec = {"version": val}
         assert normalize_version(rec) and "version" not in rec, val
     for val in ("1", "1.0", "v2", "1.2.3", "2019-03", "Version 2", "1.0.0.20190315", "2.3.20201231"):

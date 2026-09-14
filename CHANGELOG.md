@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.2] - 2026-09-14
+
+### Fixed
+- **The posters.science auto-registration stamp is now stripped from `version` by default.**
+  A number of merged records carried `version: "Posters.science automated"`, which is not a
+  repository version: verified against both the live Zenodo API and the raw harvested metadata
+  on disk, the deposit's own `version` is empty for these records, so the string was injected by
+  the platform's auto-registration, not supplied by the repository. `normalize_version` (already
+  a default step of the merge pipeline) now recognizes the stamp via `_VERSION_PLATFORM_STAMP_RE`
+  and drops it, alongside the existing URL / over-long / spam rules. Real version designators
+  (`1.0`, `v2`, `2019-03`, dotted numerics) are unaffected. Any run of the pipeline now produces
+  a clean `version` field. A one-off re-derivation of the existing corpus (restoring `version`
+  from the raw deposit) cleared the stamp from 4,982 records and left the ~11k legitimate
+  repository versions untouched.
+
 ## [0.39.1] - 2026-09-09
 
 ### Fixed
