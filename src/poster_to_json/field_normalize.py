@@ -1596,12 +1596,17 @@ _HTML_TITLE_TAGS = ("b", "i", "em", "strong", "u", "s", "strike", "sub", "sup",
                     "small", "big", "tt", "mark", "code", "br", "span")
 _HTML_TITLE_TAG_RE = re.compile(
     r"</?(?:" + "|".join(_HTML_TITLE_TAGS) + r")(?:\s[^>]*)?/?>", re.I)
+# Only a proper, semicolon-terminated entity. A bare "&reg" or "&amp" WITHOUT a
+# semicolon is left alone: titles use "&" as a literal word separator, and
+# html.unescape would wrongly turn "conserved&regulator" into "conserved(R)ulator".
+_HTML_ENTITY_RE = re.compile(r"&(?:#\d+|#x[0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]+);")
 
 
 def _strip_html_formatting(text: str) -> str:
-    """Remove known inline HTML tags (keep inner text), decode entities, tidy space."""
+    """Remove known inline HTML tags (keep inner text), decode only proper
+    semicolon-terminated entities, and tidy whitespace left by a removed tag."""
     stripped = _HTML_TITLE_TAG_RE.sub("", text)
-    stripped = html.unescape(stripped)
+    stripped = _HTML_ENTITY_RE.sub(lambda m: html.unescape(m.group(0)), stripped)
     return re.sub(r"\s{2,}", " ", stripped).strip()
 
 
@@ -1617,7 +1622,11 @@ def strip_title_html(record: dict) -> bool:
     changed = False
     for i, entry in enumerate(titles):
         cur = _title_str(entry)
-        if not isinstance(cur, str) or ("<" not in cur and "&" not in cur):
+        if not isinstance(cur, str):
+            continue
+        # Only touch a title that actually carries a known HTML tag or a proper
+        # semicolon-terminated entity. A literal "&" or "<" alone is left as-is.
+        if not (_HTML_TITLE_TAG_RE.search(cur) or _HTML_ENTITY_RE.search(cur)):
             continue
         new = _strip_html_formatting(cur)
         if new and new != cur:
