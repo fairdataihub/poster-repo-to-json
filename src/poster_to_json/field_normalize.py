@@ -7,6 +7,7 @@ Each normalizer mutates a record in place and returns True if it changed.
 
 Currently: conference. (creators, subjects, publisher, formats to follow.)
 """
+import html
 import json
 import re
 import unicodedata
@@ -1584,6 +1585,45 @@ def replace_bad_llm_title(record: dict, deposit_title=None) -> bool:
     entry = titles[0]
     titles[0] = {**entry, "title": new} if isinstance(entry, dict) else {"title": new}
     return True
+
+
+# Inline HTML formatting tags a depositor sometimes leaves in a title. Only these
+# named tags are removed (inner text kept, so "H<sub>2</sub>O" -> "H2O"). Anything
+# else in angle brackets is preserved on purpose: a title can carry non-HTML angle
+# brackets that a blind strip would destroy, e.g. "< Ev >" as physics notation for
+# an average, or "<object>"/"<salute>" used as literal placeholder words.
+_HTML_TITLE_TAGS = ("b", "i", "em", "strong", "u", "s", "strike", "sub", "sup",
+                    "small", "big", "tt", "mark", "code", "br", "span")
+_HTML_TITLE_TAG_RE = re.compile(
+    r"</?(?:" + "|".join(_HTML_TITLE_TAGS) + r")(?:\s[^>]*)?/?>", re.I)
+
+
+def _strip_html_formatting(text: str) -> str:
+    """Remove known inline HTML tags (keep inner text), decode entities, tidy space."""
+    stripped = _HTML_TITLE_TAG_RE.sub("", text)
+    stripped = html.unescape(stripped)
+    return re.sub(r"\s{2,}", " ", stripped).strip()
+
+
+def strip_title_html(record: dict) -> bool:
+    """Clean HTML out of every title. Idempotent. A title is a plain-text field, so
+    inline formatting markup like <b>/<i>/<sub> that leaked from the deposit is
+    removed (inner text kept) and HTML entities are decoded (&amp; -> &), while
+    non-HTML angle-bracket content (physics notation like '< Ev >', literal
+    placeholders like <object>) is preserved. Runs by default in the merge pipeline."""
+    titles = record.get("titles")
+    if not isinstance(titles, list):
+        return False
+    changed = False
+    for i, entry in enumerate(titles):
+        cur = _title_str(entry)
+        if not isinstance(cur, str) or ("<" not in cur and "&" not in cur):
+            continue
+        new = _strip_html_formatting(cur)
+        if new and new != cur:
+            titles[i] = {**entry, "title": new} if isinstance(entry, dict) else new
+            changed = True
+    return changed
 
 
 _ISO_DATE_RE = re.compile(r"(\d{4})(?:-(\d{1,2})(?:-(\d{1,2}))?)?")

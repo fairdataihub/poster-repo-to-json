@@ -869,3 +869,29 @@ if __name__ == "__main__":
         if k.startswith("test_"):
             v()
     print("\nAll field-normalize checks passed.")
+
+
+def test_strip_title_html():
+    from poster_to_json.field_normalize import strip_title_html
+    # inline formatting tags are removed, inner text kept
+    for src, want in [
+        ("<b>Delivering Data</b>", "Delivering Data"),
+        ("<i>Monday</i><i>.com</i> as PM", "Monday.com as PM"),
+        ("H<sub>2</sub>O and CO<sub>2</sub>", "H2O and CO2"),
+        ("Title with &amp; ampersand", "Title with & ampersand"),
+    ]:
+        rec = {"titles": [{"title": src}]}
+        strip_title_html(rec)
+        assert rec["titles"][0]["title"] == want, (src, rec["titles"][0]["title"])
+    # non-HTML angle brackets are PRESERVED (physics notation, literal placeholders)
+    for keep in ("Reconstruction at < Ev > ~ 6 GeV", "An Exploration of <object> Using Artifacts",
+                 "Integrate <salute> in Correspondence", "Plain title no markup"):
+        rec = {"titles": [{"title": keep}]}
+        strip_title_html(rec)
+        assert rec["titles"][0]["title"] == keep, keep
+    # idempotent
+    rec = {"titles": [{"title": "<b>X</b> H<sub>2</sub>O"}]}
+    strip_title_html(rec); once = rec["titles"][0]["title"]
+    strip_title_html(rec)
+    assert rec["titles"][0]["title"] == once == "X H2O"
+    print("OK strip_title_html: formatting tags removed, non-HTML brackets kept")
