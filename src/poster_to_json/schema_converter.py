@@ -386,15 +386,21 @@ class SchemaConverter:
         else:
             # Zenodo assigns a version by concept sequence when the depositor
             # supplies none: relations.version[].index is 0-based, so the version
-            # is index + 1. This is a real repository fact (it matches what Zenodo
-            # displays and our versionSequence), so fill it rather than leave the
-            # field empty. Zenodo only; Figshare already carries an integer version.
+            # is index + 1. Fill it only for members of a MULTI-version family,
+            # where the sequence is a meaningful version designator; a lone poster
+            # (index 0 and is_last) keeps an empty version rather than a noisy "1".
+            # A family member is index > 0, or index 0 with a newer version
+            # (is_last False). This matches what Zenodo displays and our
+            # versionSequence. Zenodo only; Figshare already carries an integer.
             relations = metadata.get("relations") or record.get("relations") or {}
             vlist = relations.get("version") if isinstance(relations, dict) else None
             if isinstance(vlist, list) and vlist and isinstance(vlist[0], dict):
-                idx = vlist[0].get("index")
+                entry = vlist[0]
+                idx = entry.get("index")
                 if isinstance(idx, int) and not isinstance(idx, bool) and idx >= 0:
-                    result["version"] = str(idx + 1)
+                    in_multi_version_family = idx > 0 or entry.get("is_last") is False
+                    if in_multi_version_family:
+                        result["version"] = str(idx + 1)
 
         # Publication year
         pub_date = metadata.get("publication_date")

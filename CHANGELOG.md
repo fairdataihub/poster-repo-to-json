@@ -8,14 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.39.4] - 2026-09-16
 
 ### Changed
-- **Zenodo `version` is filled from the concept sequence when the depositor supplies none.**
-  Zenodo assigns a version by position in the concept (its `relations.version[].index`, 0-based),
-  even when the deposit carries no explicit version string. `convert_zenodo` now sets
-  `version = index + 1` in that case, a real repository fact that matches what Zenodo displays and
-  our `versionSequence`, instead of leaving the field empty. A depositor-supplied version is still
-  kept verbatim, and a record with no version graph keeps an absent `version`. Figshare is
-  unaffected (it already carries an integer version). This supersedes the earlier choice to leave
-  those ~1,000 Zenodo records blank, and aligns the emitted JSON with the platform's migrated DB.
+- **Zenodo `version` is filled from the concept sequence for multi-version family members when
+  the depositor supplies none.** Zenodo assigns a version by position in the concept (its
+  `relations.version[].index`, 0-based). `convert_zenodo` now sets `version = index + 1` when the
+  record is part of a multi-version family (index > 0, or index 0 with a newer version present),
+  a real repository fact that matches what Zenodo displays and our `versionSequence`. A lone
+  single-version poster (index 0 and `is_last`) keeps an empty `version` rather than a noisy "1".
+  A depositor-supplied version is kept verbatim, and a record with no version graph keeps an
+  absent `version`. Figshare is unaffected (it already carries an integer version). This aligns
+  the emitted JSON with the platform's migrated DB, where the same family records were filled.
 
 ## [0.39.3] - 2026-09-14
 

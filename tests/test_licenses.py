@@ -212,16 +212,26 @@ def test_recover_publication_year_from_date_signals():
 
 
 def test_zenodo_version_filled_from_concept_sequence():
-    """Zenodo assigns a version by concept sequence when the depositor gives none;
-    convert_zenodo fills version = index + 1. A supplied version is kept as-is, and
-    with no relations the field stays absent."""
+    """convert_zenodo fills version = index + 1 for a MULTI-version family member
+    when the depositor gives none. A lone poster (index 0, is_last) stays empty, a
+    supplied version is kept, and no relations means an absent version."""
     sc = SchemaConverter()
-    # no depositor version, concept index 1 -> version "2"
+    # multi-version member (index 1) -> version "2"
     r = sc.convert_zenodo({"doi": "10.5281/zenodo.10009369",
                            "conceptdoi": "10.5281/zenodo.1", "conceptrecid": "1",
                            "metadata": {"title": "X",
                                         "relations": {"version": [{"index": 1, "is_last": True}]}}})
     assert r.get("version") == "2", r.get("version")
+    # first version of a family (index 0 but a newer one exists) -> "1"
+    r_first = sc.convert_zenodo({"doi": "10.5281/zenodo.1a", "conceptrecid": "1",
+                                 "metadata": {"title": "X0",
+                                              "relations": {"version": [{"index": 0, "is_last": False}]}}})
+    assert r_first.get("version") == "1"
+    # LONE poster (index 0, is_last True) -> version stays EMPTY, no noisy "1"
+    r_lone = sc.convert_zenodo({"doi": "10.5281/zenodo.solo", "conceptrecid": "9",
+                                "metadata": {"title": "Solo",
+                                             "relations": {"version": [{"index": 0, "is_last": True}]}}})
+    assert "version" not in r_lone, r_lone.get("version")
     # depositor-supplied version is preserved
     r2 = sc.convert_zenodo({"doi": "10.5281/zenodo.2",
                             "metadata": {"title": "Y", "version": "2.1",
@@ -230,4 +240,4 @@ def test_zenodo_version_filled_from_concept_sequence():
     # no version and no relations -> field absent
     r3 = sc.convert_zenodo({"doi": "10.5281/zenodo.3", "metadata": {"title": "Z"}})
     assert "version" not in r3
-    print("OK zenodo version filled from concept sequence, supplied version kept")
+    print("OK zenodo version: multi-version filled, lone poster left empty, supplied kept")
