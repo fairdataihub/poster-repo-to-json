@@ -383,6 +383,18 @@ class SchemaConverter:
         version = metadata.get("version")
         if version is not None and str(version).strip():
             result["version"] = str(version).strip()
+        else:
+            # Zenodo assigns a version by concept sequence when the depositor
+            # supplies none: relations.version[].index is 0-based, so the version
+            # is index + 1. This is a real repository fact (it matches what Zenodo
+            # displays and our versionSequence), so fill it rather than leave the
+            # field empty. Zenodo only; Figshare already carries an integer version.
+            relations = metadata.get("relations") or record.get("relations") or {}
+            vlist = relations.get("version") if isinstance(relations, dict) else None
+            if isinstance(vlist, list) and vlist and isinstance(vlist[0], dict):
+                idx = vlist[0].get("index")
+                if isinstance(idx, int) and not isinstance(idx, bool) and idx >= 0:
+                    result["version"] = str(idx + 1)
 
         # Publication year
         pub_date = metadata.get("publication_date")

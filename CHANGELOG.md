@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.4] - 2026-09-16
+
+### Changed
+- **Zenodo `version` is filled from the concept sequence when the depositor supplies none.**
+  Zenodo assigns a version by position in the concept (its `relations.version[].index`, 0-based),
+  even when the deposit carries no explicit version string. `convert_zenodo` now sets
+  `version = index + 1` in that case, a real repository fact that matches what Zenodo displays and
+  our `versionSequence`, instead of leaving the field empty. A depositor-supplied version is still
+  kept verbatim, and a record with no version graph keeps an absent `version`. Figshare is
+  unaffected (it already carries an integer version). This supersedes the earlier choice to leave
+  those ~1,000 Zenodo records blank, and aligns the emitted JSON with the platform's migrated DB.
+
 ## [0.39.3] - 2026-09-14
 
 ### Fixed

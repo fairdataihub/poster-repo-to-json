@@ -209,3 +209,25 @@ def test_recover_publication_year_from_date_signals():
     # nothing usable -> None (record left unchanged upstream)
     assert mod.recover_year({"posterJson": {}}) is None
     print("OK recover_year prefers Issued date, then publishedAt, then conference")
+
+
+def test_zenodo_version_filled_from_concept_sequence():
+    """Zenodo assigns a version by concept sequence when the depositor gives none;
+    convert_zenodo fills version = index + 1. A supplied version is kept as-is, and
+    with no relations the field stays absent."""
+    sc = SchemaConverter()
+    # no depositor version, concept index 1 -> version "2"
+    r = sc.convert_zenodo({"doi": "10.5281/zenodo.10009369",
+                           "conceptdoi": "10.5281/zenodo.1", "conceptrecid": "1",
+                           "metadata": {"title": "X",
+                                        "relations": {"version": [{"index": 1, "is_last": True}]}}})
+    assert r.get("version") == "2", r.get("version")
+    # depositor-supplied version is preserved
+    r2 = sc.convert_zenodo({"doi": "10.5281/zenodo.2",
+                            "metadata": {"title": "Y", "version": "2.1",
+                                         "relations": {"version": [{"index": 0}]}}})
+    assert r2.get("version") == "2.1"
+    # no version and no relations -> field absent
+    r3 = sc.convert_zenodo({"doi": "10.5281/zenodo.3", "metadata": {"title": "Z"}})
+    assert "version" not in r3
+    print("OK zenodo version filled from concept sequence, supplied version kept")
