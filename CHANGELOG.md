@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.5] - 2026-09-17
+
+### Added
+- **`collapse_shared_doi_families`: legacy Figshare families that collide on a DOI collapse to
+  one record.** A DOI is a unique identifier, so two poster records must not carry the same one.
+  Some legacy ANDS-minted Figshare articles (10.4225 / 10.25909 style) registered a single DOI
+  across every version, so their harvested versions collide on it. Those versions are the same
+  underlying poster, so the family now collapses to its latest version; the other DOIs (the
+  shared legacy DOI, the concept DOI) are retained on the survivor as additional identifiers so
+  old links still resolve. Keys on the DOI collision, never on a specific poster id, so it
+  generalises to any such family. `link_versions.py` runs it after `link_families` and drops the
+  collapsed duplicates. This prevents corpus regeneration from recreating the duplicate rows a
+  downstream migration had to resolve by hand (e.g. Adelaide CropTiPS article 5483821). Zenodo
+  is unaffected (concept versions never share a DOI).
+
 ## [0.39.4] - 2026-09-16
 
 ### Changed

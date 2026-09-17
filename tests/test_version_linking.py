@@ -557,3 +557,48 @@ def test_output_survives_conform_to_schema():
     before = [dict(r) for r in record["relatedIdentifiers"]]
     conform_to_schema(record)
     assert record["relatedIdentifiers"] == before
+
+
+def test_collapse_shared_doi_family():
+    """A Figshare family whose versions collide on a DOI collapses to one record,
+    keeping the other DOIs as identifiers; non-survivors are marked collapsed."""
+    def fam(seq, own, root):
+        return vl.VersionFamily(root_doi=root, group_key="figshare:article:548",
+                                sequence=seq, is_latest=(seq == 3), own_doi=own,
+                                source="figshare-version")
+    items = [
+        {"family": fam(1, "10.4225/55/legacy", ""),
+         "poster_json": {"identifiers": [{"identifier": "10.4225/55/legacy", "identifierType": "DOI"}]}},
+        {"family": fam(2, "10.4225/55/legacy", ""),
+         "poster_json": {"identifiers": [{"identifier": "10.4225/55/legacy", "identifierType": "DOI"}]}},
+        {"family": fam(3, "10.25909/548.v3", "10.25909/548"),
+         "poster_json": {"identifiers": [{"identifier": "10.25909/548.v3", "identifierType": "DOI"}]}},
+    ]
+    st = vl.collapse_shared_doi_families(items)
+    assert st["families_collapsed"] == 1 and st["records_dropped"] == 2
+    assert items[0].get("collapsed") and items[1].get("collapsed")
+    assert not items[2].get("collapsed")
+    ids = [i["identifier"] for i in items[2]["poster_json"]["identifiers"]]
+    assert ids[0] == "10.25909/548.v3"                    # newest DOI primary
+    assert "10.4225/55/legacy" in ids and "10.25909/548" in ids  # legacy + concept retained
+
+
+def test_collapse_leaves_distinct_doi_families_alone():
+    """A normal .vN family (distinct DOIs per version) is NOT collapsed."""
+    items = [
+        {"family": vl.from_figshare(figshare_record(100, n)), "poster_json": {}}
+        for n in (1, 2)
+    ]
+    st = vl.collapse_shared_doi_families(items)
+    assert st["families_collapsed"] == 0
+    assert not any(i.get("collapsed") for i in items)
+
+
+def test_collapse_ignores_zenodo():
+    """Zenodo concept versions never share a DOI; collapse must skip them."""
+    items = [
+        {"family": vl.from_zenodo(zenodo_record(1, "10.5281/zenodo.1", 0, False)), "poster_json": {}},
+        {"family": vl.from_zenodo(zenodo_record(2, "10.5281/zenodo.2", 1, True)), "poster_json": {}},
+    ]
+    st = vl.collapse_shared_doi_families(items)
+    assert st["families_collapsed"] == 0

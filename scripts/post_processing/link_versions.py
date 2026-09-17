@@ -227,6 +227,9 @@ def main():
                       "before": json.dumps(poster_json, sort_keys=True)})
 
     link_stats = version_linking.link_families(items)
+    # Collapse legacy Figshare families whose versions collide on a DOI into one
+    # record (survivor keeps the other DOIs as identifiers); the rest are dropped.
+    collapse_stats = version_linking.collapse_shared_doi_families(items)
 
     # How many distinct versions of each family the corpus holds. Files sharing a
     # DOI are one version present twice, not two versions.
@@ -236,8 +239,15 @@ def main():
         family_versions.setdefault(f.group_key, set()).add(f.own_doi)
 
     written = 0
+    deleted = 0
     multi = []
     for item in items:
+        # A collapsed non-survivor is dropped: delete its file (in place) and skip.
+        if item.get("collapsed"):
+            if not args.dry_run and not args.out and item["path"].exists():
+                item["path"].unlink()
+            deleted += 1
+            continue
         after = json.dumps(item["poster_json"], sort_keys=True)
         if len(family_versions[item["family"].group_key]) > 1:
             multi.append(item)
@@ -268,6 +278,8 @@ def main():
     print(f"distinct families         : {link_stats['families']}")
     print(f"families with >1 version  : {link_stats['multi_version_families']}")
     print(f"records in those families : {len(multi)}")
+    print(f"shared-DOI families collapsed: {collapse_stats['families_collapsed']}")
+    print(f"duplicate records {'to drop' if args.dry_run else 'deleted'}     : {deleted}")
     print(f"files {'that would change' if args.dry_run else 'written'}       : {written}")
 
     if multi:

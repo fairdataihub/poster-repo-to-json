@@ -46,6 +46,7 @@ versions in the repository's sense and are not touched here. See
 docs/DUPLICATE_LINKING_PROPOSAL.md.
 """
 
+import collections
 import logging
 import re
 from typing import Dict, List, Optional, Sequence
@@ -482,4 +483,79 @@ def link_families(items: Sequence[Dict]) -> Dict[str, int]:
         stats["stale_latest_corrected"],
         stats["no_root_doi"],
     )
+    return stats
+
+
+def _set_doi_identifiers(poster_json: Dict, primary: str, extra: Sequence[str]) -> None:
+    """Set identifiers[] so the primary DOI is first, then the extra DOIs, with any
+    non-DOI identifiers preserved. Deduplicated on the normalized DOI."""
+    kept_non_doi = [i for i in (poster_json.get("identifiers") or [])
+                    if isinstance(i, dict) and str(i.get("identifierType", "")).upper() != "DOI"]
+    seen = set()
+    doi_entries = []
+    for d in [primary] + list(extra):
+        n = _normalize_doi(d)
+        if not n or n in seen:
+            continue
+        seen.add(n)
+        doi_entries.append({"identifier": _clean(d), "identifierType": "DOI"})
+    poster_json["identifiers"] = doi_entries + kept_non_doi
+
+
+def collapse_shared_doi_families(items: Sequence[Dict]) -> Dict[str, int]:
+    """Collapse Figshare families whose versions collide on a DOI into one record.
+
+    A DOI is a unique identifier: two poster records must not carry the same one.
+    Some legacy ANDS-minted Figshare articles (10.4225 / 10.25909 style) registered
+    a single DOI across every version, so their harvested versions collide on it.
+    Such versions are the same underlying poster, so the family collapses to its
+    latest version. The other DOIs in the family (the shared legacy DOI, the
+    concept DOI) are retained on the survivor as additional identifiers so old
+    links still resolve. Non-survivors are marked ``item['collapsed'] = True`` for
+    the caller to drop; the survivor's version relations are cleared (it is now a
+    single record). Keys on the DOI collision, never on a specific poster id, so it
+    generalises to any such legacy family. Run after :func:`link_families`.
+    """
+    # Limit to Figshare families; Zenodo concept versions never share a DOI.
+    groups: Dict[str, List[Dict]] = {}
+    for it in items:
+        fam = it.get("family")
+        if isinstance(fam, VersionFamily) and str(fam.source).startswith("figshare"):
+            groups.setdefault(fam.group_key, []).append(it)
+
+    stats = {"families_collapsed": 0, "records_dropped": 0}
+    for members in groups.values():
+        dois = [m["family"].own_doi for m in members if m["family"].own_doi]
+        counts = collections.Counter(dois)
+        if not any(c > 1 for c in counts.values()):
+            continue  # no within-family DOI collision
+        ordered = sorted(members, key=lambda m: (m["family"].sequence, m["family"].own_doi))
+        survivor = ordered[-1]
+        # distinct DOIs across the family, latest first, plus the concept/root DOI
+        distinct = []
+        for m in reversed(ordered):
+            d = m["family"].own_doi
+            if d and d not in distinct:
+                distinct.append(d)
+        root = survivor["family"].root_doi
+        if root and _normalize_doi(root) not in {_normalize_doi(x) for x in distinct}:
+            distinct.append(root)
+        primary = survivor["family"].own_doi or (distinct[0] if distinct else "")
+        _set_doi_identifiers(survivor["poster_json"], primary,
+                             [d for d in distinct if _normalize_doi(d) != _normalize_doi(primary)])
+        # single record now: drop version relations we manage
+        remaining = _strip_version_relations(survivor["poster_json"],
+                                             [root] + [m["family"].own_doi for m in ordered])
+        if remaining:
+            survivor["poster_json"]["relatedIdentifiers"] = remaining
+        else:
+            survivor["poster_json"].pop("relatedIdentifiers", None)
+        for m in ordered[:-1]:
+            m["collapsed"] = True
+            stats["records_dropped"] += 1
+        stats["families_collapsed"] += 1
+
+    if stats["families_collapsed"]:
+        logger.info("collapsed %d shared-DOI figshare families, dropped %d duplicate records",
+                    stats["families_collapsed"], stats["records_dropped"])
     return stats
