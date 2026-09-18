@@ -130,7 +130,20 @@ shared legacy DOI, the concept DOI) are retained on the survivor as additional
 identifiers so old links still resolve. This keys on the DOI collision itself, not
 on any specific article, so it generalises to any such legacy family. The worked
 example is Adelaide CropTiPS article 5483821, whose three identical-content versions
-now resolve to one record on the current `10.25909/5483821.v3` DOI.
+now resolve to one record on the current `10.25909/5483821.v3` DOI, with the legacy
+and concept DOIs kept in `identifiers`:
+
+```
+"identifiers": [
+  {"identifier": "10.25909/5483821.v3",       "identifierType": "DOI"},
+  {"identifier": "10.4225/55/59e3f09ff1a4d",  "identifierType": "DOI"},
+  {"identifier": "10.25909/5483821",          "identifierType": "DOI"}
+]
+```
+
+The current per-version DOI comes first as the primary; the shared legacy DOI and
+the concept DOI follow so old links still resolve. Any non-DOI identifiers already
+on the record are preserved.
 
 Depositor-declared version relations are preserved. Only relations pointing at a
 DOI in the record's own computed family are rewritten, that being the exact set
