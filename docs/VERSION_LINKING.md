@@ -121,6 +121,17 @@ repository-scoped key such as `figshare:article:21359946`, which is never
 written to a poster because it is not an identifier anyone can resolve. Their
 siblings still link to each other directly.
 
+Some legacy Figshare articles (ANDS-minted, `10.4225` / `10.25909` style)
+registered a single DOI across every version, so their harvested versions collide
+on one DOI and cannot be distinct records; a DOI is a unique identifier. Those
+versions are the same underlying poster, so the family is collapsed to its latest
+version (`collapse_shared_doi_families`, 0.39.5), and the other DOIs it carried (the
+shared legacy DOI, the concept DOI) are retained on the survivor as additional
+identifiers so old links still resolve. This keys on the DOI collision itself, not
+on any specific article, so it generalises to any such legacy family. The worked
+example is Adelaide CropTiPS article 5483821, whose three identical-content versions
+now resolve to one record on the current `10.25909/5483821.v3` DOI.
+
 Depositor-declared version relations are preserved. Only relations pointing at a
 DOI in the record's own computed family are rewritten, that being the exact set
 we emit; anything pointing elsewhere is the depositor's and stays. An earlier
@@ -130,11 +141,18 @@ assert nothing about are not touched at all, because at that point a stale link
 from an old run is indistinguishable from a relation the depositor declared, and
 deleting theirs is the worse error.
 
-The top-level `version` field is left alone. It belongs to the depositor, and
-Zenodo lets them write anything in it: both records in the worked example hold a
-date, and one record in the corpus reads `Posters.science automated`. It cannot
-carry ordering, and overwriting it would destroy real metadata. Cleaning up junk
-version strings is a field-normalization job, not this one.
+The top-level `version` field is the depositor's own designator and is mostly kept
+verbatim, with two corrections made elsewhere in the pipeline (they are not part of
+the linking itself, but they matter for what the field means). First, the platform
+auto-registration stamp `Posters.science automated` is stripped: it is not a
+repository version, since the raw Zenodo/Figshare deposit carries no version for
+those records (`normalize_version`, 0.39.2). Second, where a Zenodo record supplies
+no version but belongs to a multi-version family, `version` is filled with the
+concept sequence (`index + 1`), because Zenodo itself assigns a version by sequence
+in that case and it matches `versionSequence`; a lone single-version poster keeps an
+empty `version` rather than a noisy `1` (`convert_zenodo`, 0.39.4). A
+depositor-supplied version string is otherwise left untouched, and it never carries
+the ordering, which lives in the relation chain.
 
 ### An earlier draft of this feature added a `versionInfo` object
 
@@ -218,7 +236,15 @@ Linking the batches separately finds nothing.
 
 ## Result on the corpus
 
-Run on 2026-09-03 against 31,363 posters and 39,471 raw harvested records:
+This is the initial linking run on 2026-09-03. Later revisions adjusted what the
+`version` field and identifiers hold without changing the family structure below:
+the auto-registration stamp was stripped (0.39.2), inline HTML was removed from
+titles (0.39.3), Zenodo `version` was filled from the concept sequence for
+multi-version families (0.39.4), and the one legacy shared-DOI Figshare family was
+collapsed to a single record (0.39.5). See the CHANGELOG for those. The counts here
+are the family-linking baseline.
+
+Run against 31,363 posters and 39,471 raw harvested records:
 
 | | |
 | --- | ---: |
