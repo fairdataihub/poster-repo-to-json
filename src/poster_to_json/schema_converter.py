@@ -333,10 +333,10 @@ class SchemaConverter:
         if doi:
             identifiers.append({"identifier": doi, "identifierType": "DOI"})
 
-        zenodo_id = record.get("id")
-        if zenodo_id:
-            identifiers.append({"identifier": str(zenodo_id), "identifierType": "Other"})
-
+        # The bare numeric Zenodo record id is intentionally NOT emitted: it is
+        # not a resolvable identifier on its own (DataCite has no type for it, so
+        # it landed as "Other"), and it is redundant with the DOI, which embeds it
+        # (10.5281/zenodo.<id>). The auto-indexing field spec lists only the DOI.
         handle = record.get("handle") or metadata.get("handle")
         if handle and str(handle).strip():
             identifiers.append({"identifier": str(handle).strip(), "identifierType": "Handle"})
@@ -551,10 +551,10 @@ class SchemaConverter:
         if doi:
             identifiers.append({"identifier": doi, "identifierType": "DOI"})
 
-        figshare_id = record.get("id")
-        if figshare_id:
-            identifiers.append({"identifier": str(figshare_id), "identifierType": "Other"})
-
+        # The bare numeric Figshare article id is intentionally NOT emitted: it is
+        # not a resolvable identifier on its own (it landed as "Other"), and it is
+        # redundant with the DOI, which embeds it (10.NNNNN/<id>.vN). The
+        # auto-indexing field spec lists only the DOI (and the Handle below).
         # Institutional Figshare portals (Leicester, Loughborough, Sheffield,
         # Middlebury, ...) mint a Handle instead of a DOI. Capture it so these
         # posters aren't identifier-less.

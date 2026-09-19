@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.6] - 2026-09-18
+
+### Changed
+- **The bare numeric repository id is no longer emitted as an `identifierType: "Other"`
+  identifier.** Every Zenodo and Figshare record was carrying its numeric record/article id as a
+  second identifier typed `Other` (about 22,780 Zenodo and 9,894 Figshare records). It is not a
+  resolvable identifier on its own, DataCite has no type for it (hence `Other`), and it is
+  redundant with the DOI, which already embeds it (`10.5281/zenodo.<id>`, `10.NNNNN/<id>.vN`). The
+  auto-indexing field spec lists only the DOI, so `convert_zenodo` and `convert_figshare` now emit
+  the DOI (and, for institutional Figshare with no DOI, the Handle) and drop the numeric `Other`.
+  Downstream consumers that need the raw id can take it from the DOI. Affects records produced
+  from now on; the frozen blob is unchanged until the next re-push.
+
 ## [0.39.5] - 2026-09-17
 
 ### Added
