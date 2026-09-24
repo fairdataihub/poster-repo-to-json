@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.8] - 2026-09-24
+
+### Fixed
+- **A Zenodo deposit that borrowed the DOI of a record we also hold is dropped as a copy.** Zenodo
+  lets a depositor register an existing DOI instead of minting one, so a Zenodo record can carry a
+  Figshare, ResearchGate or journal DOI. When that DOI is carried as its own identifier by a record
+  from another repository in the corpus, the Zenodo deposit is the same poster deposited twice. The
+  copy used to ship as a DOI-less duplicate (general cleanup had already removed the borrowed DOI,
+  since the depositor also listed it as a reference), and the platform showed it as a second search
+  result or, when matched by its original DOI, in place of the real version. `link_versions.py` now
+  collects borrowed-DOI Zenodo deposits from the raw harvest (`is_borrowed_doi`), picks the ones
+  whose DOI another repository's record owns (`find_borrowed_doi_copies`), removes them before
+  linking and deletes their files. A borrowed DOI that nothing else in the corpus carries (a
+  journal or ResearchGate DOI, typically) is left alone. On the current corpus this drops 2 of the
+  544 borrowed-DOI Zenodo deposits: 1196536 (copy of Figshare 5467180 v3) and 1196563 (copy of
+  Figshare 5959984 v1).
+
 ## [0.39.7] - 2026-09-24
 
 ### Fixed

@@ -17,7 +17,10 @@ Only fields the poster schema already defines are written: relatedIdentifiers
 entries using the DataCite version relations. Nothing else is touched, and the
 depositor's own `version` string is left exactly as it is.
 
-Every version is kept. Nothing is deleted or merged.
+Every version is kept. Two kinds of duplicate record are dropped (their files
+deleted in place): a legacy Figshare family whose versions share one DOI
+collapses to its latest version, and a Zenodo deposit that borrowed the DOI of
+a record from another repository we also hold is removed as a copy of it.
 
 Usage:
     # Report only, change nothing
@@ -105,19 +108,27 @@ def _iter_raw(paths):
                     logger.warning("skipping unparseable line in %s", p)
 
 
-def build_raw_index(paths):
+def build_raw_index(paths, borrowed=None):
     """Map normalized DOI -> VersionFamily, from raw Zenodo/Figshare records.
 
     Normally a DOI is unique per version, so the value is a single VersionFamily.
     Some Figshare articles (old ANDS 10.4225 style) share one article-level DOI
     across every version; there the value becomes ``{sequence: VersionFamily}``
     and the caller disambiguates by the record's version number.
+
+    If ``borrowed`` is a dict, it is filled with Zenodo record id -> raw DOI for
+    every Zenodo deposit whose DOI was minted by another repository.
     """
     index = {}
     counts = Counter()
     for rec in _iter_raw(paths):
         if not isinstance(rec, dict):
             continue
+        if (borrowed is not None and (rec.get("recid") or rec.get("conceptrecid"))
+                and version_linking.is_borrowed_doi("zenodo", rec.get("doi"))):
+            rec_id = rec.get("id") or rec.get("recid")
+            if rec_id:
+                borrowed[str(rec_id)] = rec.get("doi")
         if rec.get("conceptrecid") or (rec.get("metadata") or {}).get("relations"):
             family = version_linking.from_zenodo(rec)
             source = "zenodo"
@@ -159,6 +170,11 @@ def _resolve_family(entry, poster_json):
     return entry.get(seq)
 
 
+def _repo_and_id(path):
+    """Repository and record id from a corpus path such as zenodo/1196536_complete.json."""
+    return path.parent.name, path.name.split("_", 1)[0].split(".", 1)[0]
+
+
 def _own_doi(poster_json):
     """The poster's own DOI, from identifiers[]."""
     for ident in poster_json.get("identifiers") or []:
@@ -194,7 +210,8 @@ def main():
             ap.error(f"--corpus is not a directory: {root}")
         roots.append(root)
 
-    raw_index = build_raw_index(args.raw)
+    borrowed = {}
+    raw_index = build_raw_index(args.raw, borrowed=borrowed)
 
     files = []
     for root in roots:
@@ -205,6 +222,8 @@ def main():
 
     items = []
     stats = Counter()
+    owners = {}        # DOI -> [(repository, record id)] carrying it as an identifier
+    zenodo_paths = {}  # Zenodo record id -> [corpus files]
     for root, path in files:
         try:
             poster_json = json.loads(path.read_text(encoding="utf-8"))
@@ -214,6 +233,15 @@ def main():
         if not isinstance(poster_json, dict):
             stats["not-an-object"] += 1
             continue
+
+        repo, rec_id = _repo_and_id(path)
+        if repo == "zenodo":
+            zenodo_paths.setdefault(rec_id, []).append(path)
+        for ident in poster_json.get("identifiers") or []:
+            if isinstance(ident, dict) and str(ident.get("identifierType", "")).upper() == "DOI":
+                d = version_linking._normalize_doi(ident.get("identifier"))
+                if d:
+                    owners.setdefault(d, []).append((repo, rec_id))
 
         doi = _own_doi(poster_json)
         family = _resolve_family(raw_index.get(doi), poster_json) if doi else None
@@ -225,6 +253,18 @@ def main():
         items.append({"path": path, "root": root, "family": family,
                       "poster_json": poster_json,
                       "before": json.dumps(poster_json, sort_keys=True)})
+
+    # Drop Zenodo copies of a record we also hold: deposits whose DOI was
+    # borrowed from the other repository. They must not join a family or ship.
+    copies = version_linking.find_borrowed_doi_copies(borrowed, owners)
+    copy_paths = {p for rec_id in copies for p in zenodo_paths.get(rec_id, [])}
+    if copy_paths:
+        items = [it for it in items if it["path"] not in copy_paths]
+    for p in sorted(copy_paths):
+        logger.info("borrowed-DOI copy dropped: %s (DOI %s)", p,
+                    copies[_repo_and_id(p)[1]])
+        if not args.dry_run and not args.out and p.exists():
+            p.unlink()
 
     link_stats = version_linking.link_families(items)
     # Collapse legacy Figshare families whose versions collide on a DOI into one
@@ -280,6 +320,7 @@ def main():
     print(f"records in those families : {len(multi)}")
     print(f"shared-DOI families collapsed: {collapse_stats['families_collapsed']}")
     print(f"duplicate records {'to drop' if args.dry_run else 'deleted'}     : {deleted}")
+    print(f"borrowed-DOI copies {'to drop' if args.dry_run else 'deleted'}   : {len(copy_paths)}")
     print(f"files {'that would change' if args.dry_run else 'written'}       : {written}")
 
     if multi:

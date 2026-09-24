@@ -69,3 +69,8 @@ The corpus can still contain duplicate indexed entries (the same poster deposite
 more than once, or cross-posted to two repositories). These are a known, separate
 class from versions and are handled by tombstoning on the platform side, not by the
 indexing pipeline. See `DUPLICATE_LINKING_PROPOSAL.md` for the tiers and rationale.
+
+One kind is removed by the pipeline itself (0.39.8): a Zenodo deposit whose DOI
+was borrowed from a record in another repository that we also deliver (for
+example Zenodo 1196536, which carries Figshare 5467180 v3's DOI). The owning
+repository's record is kept and the Zenodo copy is not delivered.

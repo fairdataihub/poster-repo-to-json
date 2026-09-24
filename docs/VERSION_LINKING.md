@@ -133,6 +133,13 @@ example is Adelaide CropTiPS article 5483821, whose three identical-content vers
 now resolve to one record on the current `10.25909/5483821.v3` DOI, with the legacy
 and concept DOIs kept in `identifiers`:
 
+A related case is a Zenodo deposit that borrowed another repository's DOI
+instead of minting its own (Zenodo 1196536 carries Figshare 5467180 v3's DOI).
+When a record from that other repository is in the corpus, the Zenodo deposit is
+the same poster deposited twice, not a version, so `link_versions.py` drops it
+before linking (`find_borrowed_doi_copies`, 0.39.8). A borrowed DOI nothing else
+in the corpus carries, such as a journal DOI, is left alone.
+
 ```
 "identifiers": [
   {"identifier": "10.25909/5483821.v3",       "identifierType": "DOI"},

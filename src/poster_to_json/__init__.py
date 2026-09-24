@@ -11,7 +11,7 @@ Pipeline:
 Output conforms to poster_schema.json (DataCite-based with poster extensions).
 """
 
-__version__ = "0.39.7"
+__version__ = "0.39.8"
 
 from .extractor import PosterExtractor
 from .schema_converter import SchemaConverter, load_bundled_schema
@@ -24,6 +24,8 @@ from .version_linking import (
     from_zenodo,
     link_families,
     collapse_shared_doi_families,
+    find_borrowed_doi_copies,
+    is_borrowed_doi,
 )
 
 __all__ = [
@@ -38,4 +40,6 @@ __all__ = [
     "from_figshare",
     "link_families",
     "collapse_shared_doi_families",
+    "find_borrowed_doi_copies",
+    "is_borrowed_doi",
 ]

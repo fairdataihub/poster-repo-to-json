@@ -559,3 +559,51 @@ def collapse_shared_doi_families(items: Sequence[Dict]) -> Dict[str, int]:
         logger.info("collapsed %d shared-DOI figshare families, dropped %d duplicate records",
                     stats["families_collapsed"], stats["records_dropped"])
     return stats
+
+
+ZENODO_DOI_PREFIX = "10.5281/zenodo."
+
+
+def is_borrowed_doi(repository: str, doi) -> bool:
+    """True when a deposit's DOI was not minted by the repository holding it.
+
+    Zenodo lets a depositor register a DOI that already exists elsewhere instead
+    of minting its own, so a Zenodo record can carry a Figshare, ResearchGate or
+    journal DOI. Only Zenodo is decided here: its own DOIs always start with
+    ``10.5281/zenodo.``. Figshare mints the DOI of every record it serves.
+    """
+    d = _normalize_doi(doi)
+    return bool(d) and repository == "zenodo" and not d.startswith(ZENODO_DOI_PREFIX)
+
+
+def find_borrowed_doi_copies(borrowed: Dict[str, str],
+                             owners: Dict[str, Sequence]) -> Dict[str, str]:
+    """Pick the Zenodo deposits that are copies of another record in the corpus.
+
+    A DOI identifies one record and belongs to the repository that minted it.
+    When a Zenodo deposit's DOI was borrowed from another repository, and a
+    record from that other repository is in the corpus carrying the same DOI as
+    its own identifier, the Zenodo deposit is a copy of that record: the same
+    poster, deposited twice, claiming one DOI. Keeping both puts two records on
+    one DOI (or, once the borrowed DOI is cleaned off the copy, a DOI-less
+    duplicate), so the copy is dropped and the minting repository's record kept.
+
+    A borrowed DOI that no other corpus record carries (a journal article or
+    ResearchGate DOI, typically) is left alone: there is nothing to duplicate.
+
+    Args:
+        borrowed: Zenodo record id -> the deposit's raw DOI, for deposits where
+            :func:`is_borrowed_doi` is true.
+        owners: normalized DOI -> ``(repository, record_id)`` pairs for every
+            corpus record carrying that DOI in its identifiers.
+
+    Returns:
+        Zenodo record id -> the owner DOI, for each copy to drop.
+    """
+    drop = {}
+    for rec_id, raw_doi in borrowed.items():
+        doi = _normalize_doi(raw_doi)
+        holders = owners.get(doi) or []
+        if any(repo != "zenodo" for repo, _ in holders):
+            drop[str(rec_id)] = doi
+    return drop
