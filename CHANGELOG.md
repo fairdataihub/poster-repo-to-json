@@ -18,9 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   collects borrowed-DOI Zenodo deposits from the raw harvest (`is_borrowed_doi`), picks the ones
   whose DOI another repository's record owns (`find_borrowed_doi_copies`), removes them before
   linking and deletes their files. A borrowed DOI that nothing else in the corpus carries (a
-  journal or ResearchGate DOI, typically) is left alone. On the current corpus this drops 2 of the
-  544 borrowed-DOI Zenodo deposits: 1196536 (copy of Figshare 5467180 v3) and 1196563 (copy of
-  Figshare 5959984 v1).
+  journal or ResearchGate DOI, typically) is left alone. On the current corpus this drops 12 of the
+  544 borrowed-DOI Zenodo deposits, each confirmed to carry the same title as the record that owns
+  its DOI: 2 had already lost the borrowed DOI and shipped DOI-less (1196536, copy of Figshare
+  5467180 v3; 1196563, copy of Figshare 5959984 v1), and 10 still carried it, so two delivered files
+  claimed one DOI.
 
 ## [0.39.7] - 2026-09-24
 
