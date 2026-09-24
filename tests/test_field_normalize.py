@@ -895,3 +895,14 @@ def test_strip_title_html():
     strip_title_html(rec)
     assert rec["titles"][0]["title"] == once == "X H2O"
     print("OK strip_title_html: formatting tags removed, non-HTML brackets kept")
+
+
+def test_strip_title_control_chars():
+    from poster_to_json.field_normalize import strip_title_control_chars
+    rec = {"titles": [{"title": "Convergent body size evolution of Crocodyliformes\x0bupon entering the aquatic realm"}]}
+    assert strip_title_control_chars(rec) is True
+    assert rec["titles"][0]["title"] == "Convergent body size evolution of Crocodyliformes upon entering the aquatic realm"
+    assert strip_title_control_chars(rec) is False  # idempotent
+    clean = {"titles": [{"title": "Lista de los escarabajos Passalidae del Perú"}]}
+    assert strip_title_control_chars(clean) is False
+    assert clean["titles"][0]["title"] == "Lista de los escarabajos Passalidae del Perú"

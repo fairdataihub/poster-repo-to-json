@@ -32,7 +32,7 @@ from .field_normalize import (
     reconcile_publication_year, sanitize_conference_dates, strip_invalid_dates,
     normalize_name_identifiers, drop_invalid_orcids, drop_letterless_creator_fields,
     normalize_affiliation_in_name, normalize_affiliation_names, replace_bad_llm_title,
-    strip_title_html,
+    strip_title_html, strip_title_control_chars,
     collapse_multidate_ranges, normalize_version, drop_junk_related_identifiers,
     drop_junk_descriptions, drop_junk_funding, clean_conference_junk,
     drop_junk_sections, drop_junk_captions, conform_to_schema,
@@ -192,6 +192,7 @@ class MetadataMerger:
         self._strip_metadata_placeholders(result)
         replace_bad_llm_title(result, _first_deposit_title(metadata))
         strip_title_html(result)
+        strip_title_control_chars(result)
         normalize_record_dates(result)
         collapse_multidate_ranges(result)
         strip_invalid_dates(result)

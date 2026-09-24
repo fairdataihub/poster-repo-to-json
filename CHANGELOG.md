@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.7] - 2026-09-24
+
+### Fixed
+- **Control characters are removed from titles by default** (`strip_title_control_chars`, a new
+  default step of the merge pipeline, after `strip_title_html`). A few deposit titles carry a C0
+  control character, typically a vertical tab where a line break was pasted (3 of 32,674 corpus
+  records). Renderers drop it silently and glue two words together (the platform shows
+  "Crocodyliformesupon"). Each control character is now replaced with a space, keeping the word
+  boundary. Accented and other non-ASCII text is untouched. Applies to records produced from now
+  on; the frozen blob is unchanged until the next re-push.
+
 ## [0.39.6] - 2026-09-18
 
 ### Changed

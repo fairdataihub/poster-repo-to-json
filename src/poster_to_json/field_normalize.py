@@ -1635,6 +1635,34 @@ def strip_title_html(record: dict) -> bool:
     return changed
 
 
+# C0 control characters and DEL, other than tab/newline/carriage return. Deposit
+# titles occasionally carry one (a vertical tab \x0b where a line break was pasted),
+# which downstream renderers drop silently, gluing two words together.
+_TITLE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def strip_title_control_chars(record: dict) -> bool:
+    """Replace control characters in every title with a space. Idempotent.
+
+    A control character is never meaningful in a plain-text title; the platform
+    strips it on display, which turns "Crocodyliformes\\x0bupon" into
+    "Crocodyliformesupon". Replacing it with a space keeps the word boundary.
+    Runs by default in the merge pipeline."""
+    titles = record.get("titles")
+    if not isinstance(titles, list):
+        return False
+    changed = False
+    for i, entry in enumerate(titles):
+        cur = _title_str(entry)
+        if not isinstance(cur, str) or not _TITLE_CONTROL_RE.search(cur):
+            continue
+        new = re.sub(r" {2,}", " ", _TITLE_CONTROL_RE.sub(" ", cur)).strip()
+        if new and new != cur:
+            titles[i] = {**entry, "title": new} if isinstance(entry, dict) else new
+            changed = True
+    return changed
+
+
 _ISO_DATE_RE = re.compile(r"(\d{4})(?:-(\d{1,2})(?:-(\d{1,2}))?)?")
 
 
