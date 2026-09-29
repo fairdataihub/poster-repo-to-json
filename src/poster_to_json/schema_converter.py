@@ -22,6 +22,7 @@ from tqdm import tqdm
 
 from . import version_linking
 from .date_normalize import normalize_date_value
+from .reference_links import add_reference_links
 
 logger = logging.getLogger(__name__)
 
@@ -517,6 +518,11 @@ class SchemaConverter:
                 valid_relations.append(entry)
             if valid_relations:
                 result["relatedIdentifiers"] = valid_relations
+
+        # The depositor's reference list (free-text citations). Each one that
+        # carries a DOI, arXiv id, PMID or URL becomes a References relation,
+        # the only way the platform shows references.
+        add_reference_links(result, metadata.get("references") or [])
 
         # File formats (extract from files, don't store files themselves)
         files = record.get("files", [])

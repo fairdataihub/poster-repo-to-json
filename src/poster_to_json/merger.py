@@ -38,6 +38,7 @@ from .field_normalize import (
     drop_junk_sections, drop_junk_captions, conform_to_schema,
 )
 from .license_policy import enforce_license
+from .reference_links import link_poster_references
 
 
 def _first_deposit_title(metadata):
@@ -188,6 +189,8 @@ class MetadataMerger:
                 result["descriptions"] = self._merge_descriptions(ext_val, meta_val)
             elif field == "conference":
                 result["conference"] = self._merge_conference(ext_val, meta_val)
+            elif field == "relatedIdentifiers":
+                result["relatedIdentifiers"] = self._merge_related(ext_val, meta_val)
 
         self._strip_metadata_placeholders(result)
         replace_bad_llm_title(result, _first_deposit_title(metadata))
@@ -208,6 +211,7 @@ class MetadataMerger:
         normalize_formats(result)
         normalize_version(result)
         drop_invalid_orcids(result)
+        link_poster_references(result)
         drop_junk_related_identifiers(result)
         drop_junk_descriptions(result)
         drop_junk_funding(result)
@@ -422,6 +426,29 @@ class MetadataMerger:
             result["relatedIdentifiers"] = existing_related
 
         return real_ids if real_ids else (ext_ids or [])
+
+    def _merge_related(self, ext_rels: List, meta_rels: List) -> List:
+        """Repository relations first, then any the extraction adds.
+
+        The depositor's related works and reference links are authoritative and
+        must never be dropped because the extraction also found relations (it
+        used to replace them wholesale). Deduplicated on the related identifier,
+        case-insensitive, with a doi.org prefix ignored.
+        """
+        def key(r):
+            v = str(r.get("relatedIdentifier", "")).strip().lower()
+            return re.sub(r"^https?://(dx\.)?doi\.org/", "", v).rstrip("/")
+
+        merged, seen = [], set()
+        for r in list(meta_rels or []) + list(ext_rels or []):
+            if not isinstance(r, dict) or not r.get("relatedIdentifier"):
+                continue
+            k = key(r)
+            if k in seen:
+                continue
+            seen.add(k)
+            merged.append(r)
+        return merged
 
     def _merge_identifiers(self, ext_ids: List, meta_ids: List) -> List:
         """Merge identifiers, preferring metadata DOIs."""

@@ -5,6 +5,29 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.9] - 2026-09-29
+
+### Fixed
+- **References with an identifier now reach the platform.** posters.science shows a poster's
+  references only through `relatedIdentifiers` (Related Resources), and a user sharing a poster adds
+  each reference the same way: one identifier, its type inferred, relation `References`. Our reference
+  lists are free text, so most never became relations: the converter never read Zenodo's own
+  `metadata.references`, and the references poster2json parsed off the poster were only linked when
+  their DOI was also scraped as an identifier. Poster 2979 (Zenodo 10801927) showed one reference while
+  Zenodo lists three. New `reference_links` module: one identifier is read from each citation in the
+  order the platform's share form infers types (a DOI wins, even inside a doi.org URL; then arXiv,
+  PMID, then any other URL; trailing punctuation and unbalanced brackets trimmed, balanced brackets in
+  a DOI kept) and appended as a `References` relation, deduplicated against existing relations and the
+  record's own identifiers. `convert_zenodo` applies it to the deposit's reference list, and the merge
+  pipeline applies it to the poster-parsed `references` (`link_poster_references`, a default step).
+  Citations without any identifier stay as text; DataCite relations require an identifier, and the
+  share form cannot add them either. `scripts/post_processing/backfill_reference_links.py` applies the
+  same rule to an existing corpus (idempotent).
+- **The merger no longer drops repository relations.** `relatedIdentifiers` had no merge rule, so when
+  the extraction carried any relations of its own, the depositor's related works and references were
+  replaced wholesale. It is now a union: repository relations first, then any extra the extraction
+  adds, deduplicated (doi.org prefix and case ignored).
+
 ## [0.39.8] - 2026-09-24
 
 ### Fixed
