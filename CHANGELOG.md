@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.10] - 2026-09-29
+
+### Changed
+- **Every Zenodo record now gets a version, as every Figshare record already does.** Figshare's API
+  returns an integer `version` on every record, 1 for a lone poster, and it is copied as is, so all
+  9,894 Figshare records carry one. Zenodo keeps the depositor's free-text `version` separate from
+  the repository's own number, the record's position in its concept (`relations.version[].index`,
+  0-based). 0.39.4 filled `index + 1` only for members of multi-version families, which left 19,790
+  lone Zenodo posters (87%) with no version while the equivalent Figshare posters show `1`.
+  `convert_zenodo` now fills `index + 1` for every record with a position, lone posters included
+  (`1`). A depositor-supplied version is still kept verbatim, and a record with no version graph
+  still has none. `scripts/post_processing/backfill_zenodo_version.py` applies this to an existing
+  corpus without touching depositor versions (idempotent).
+
 ## [0.39.9] - 2026-09-29
 
 ### Fixed

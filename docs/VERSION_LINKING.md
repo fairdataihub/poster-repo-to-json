@@ -161,18 +161,19 @@ assert nothing about are not touched at all, because at that point a stale link
 from an old run is indistinguishable from a relation the depositor declared, and
 deleting theirs is the worse error.
 
-The top-level `version` field is the depositor's own designator and is mostly kept
-verbatim, with two corrections made elsewhere in the pipeline (they are not part of
-the linking itself, but they matter for what the field means). First, the platform
-auto-registration stamp `Posters.science automated` is stripped: it is not a
-repository version, since the raw Zenodo/Figshare deposit carries no version for
-those records (`normalize_version`, 0.39.2). Second, where a Zenodo record supplies
-no version but belongs to a multi-version family, `version` is filled with the
-concept sequence (`index + 1`), because Zenodo itself assigns a version by sequence
-in that case and it matches `versionSequence`; a lone single-version poster keeps an
-empty `version` rather than a noisy `1` (`convert_zenodo`, 0.39.4). A
-depositor-supplied version string is otherwise left untouched, and it never carries
-the ordering, which lives in the relation chain.
+The top-level `version` field holds the depositor's own version string when they
+gave one, and otherwise the repository's version number, the same for both
+repositories. Figshare's API returns an integer version on every record (1 for a
+lone poster) and it is copied as is. Zenodo's equivalent is the record's position in
+its concept, `relations.version[].index` (0-based), so a Zenodo record with no
+depositor version gets `index + 1`, a lone single-version poster included (`1`)
+(`convert_zenodo`; 0.39.4 filled multi-version family members only, 0.39.10 extended
+it to every record for consistency with Figshare). The platform auto-registration
+stamp `Posters.science automated` is stripped: it is not a repository version, since
+the raw Zenodo/Figshare deposit carries no version for those records
+(`normalize_version`, 0.39.2). A depositor-supplied version string is otherwise left
+untouched, and the field never carries the ordering, which lives in the relation
+chain.
 
 ### An earlier draft of this feature added a `versionInfo` object
 

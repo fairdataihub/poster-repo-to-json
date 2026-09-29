@@ -212,9 +212,9 @@ def test_recover_publication_year_from_date_signals():
 
 
 def test_zenodo_version_filled_from_concept_sequence():
-    """convert_zenodo fills version = index + 1 for a MULTI-version family member
-    when the depositor gives none. A lone poster (index 0, is_last) stays empty, a
-    supplied version is kept, and no relations means an absent version."""
+    """convert_zenodo fills version = index + 1 when the depositor gives none, a
+    lone poster included ("1", as Figshare numbers it). A supplied version is
+    kept, and no relations means an absent version."""
     sc = SchemaConverter()
     # multi-version member (index 1) -> version "2"
     r = sc.convert_zenodo({"doi": "10.5281/zenodo.10009369",
@@ -227,11 +227,11 @@ def test_zenodo_version_filled_from_concept_sequence():
                                  "metadata": {"title": "X0",
                                               "relations": {"version": [{"index": 0, "is_last": False}]}}})
     assert r_first.get("version") == "1"
-    # LONE poster (index 0, is_last True) -> version stays EMPTY, no noisy "1"
+    # LONE poster (index 0, is_last True) -> "1", the same as Figshare's version 1
     r_lone = sc.convert_zenodo({"doi": "10.5281/zenodo.solo", "conceptrecid": "9",
                                 "metadata": {"title": "Solo",
                                              "relations": {"version": [{"index": 0, "is_last": True}]}}})
-    assert "version" not in r_lone, r_lone.get("version")
+    assert r_lone.get("version") == "1", r_lone.get("version")
     # depositor-supplied version is preserved
     r2 = sc.convert_zenodo({"doi": "10.5281/zenodo.2",
                             "metadata": {"title": "Y", "version": "2.1",
@@ -240,4 +240,4 @@ def test_zenodo_version_filled_from_concept_sequence():
     # no version and no relations -> field absent
     r3 = sc.convert_zenodo({"doi": "10.5281/zenodo.3", "metadata": {"title": "Z"}})
     assert "version" not in r3
-    print("OK zenodo version: multi-version filled, lone poster left empty, supplied kept")
+    print("OK zenodo version: filled from sequence incl. lone posters, supplied kept")

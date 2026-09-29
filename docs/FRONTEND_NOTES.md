@@ -49,10 +49,11 @@ substitute a repository project title.
   `versionRootId` from the `IsVersionOf` target, `isLatestVersion` from the absence of
   an `IsPreviousVersionOf`, and the sequence from position in the
   `IsNewVersionOf` / `IsPreviousVersionOf` chain. See `VERSION_LINKING.md`.
-- The top-level `version` field is the depositor's own designator. For a Zenodo
-  record with no depositor version that belongs to a multi-version family, we fill it
-  with the concept sequence (`index + 1`); a lone single-version poster has an empty
-  `version`. Never order versions by this field; order by the relation chain.
+- The top-level `version` field is the depositor's own version string when they gave
+  one, otherwise the repository's version number: Figshare's own integer, or for
+  Zenodo the concept position (`index + 1`). Every record with a version position has
+  one, so a lone poster from either repository shows `1`. Never order versions by
+  this field; it can be a free-text string such as a date. Order by the relation chain.
 - A family may have no sequence-1 record on the blob when we hold only later versions
   (earlier ones were never harvested). The `IsVersionOf` DOI still resolves upstream.
 
