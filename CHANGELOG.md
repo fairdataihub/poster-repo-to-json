@@ -5,6 +5,33 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.11] - 2026-10-01
+
+### Fixed
+- **A record keeps its own DOI when the depositor relates the poster to itself.** The identifier
+  cleanup in `align_schema` removed every identifier that also appeared in `relatedIdentifiers`.
+  When a depositor listed the poster's own DOI as a related identifier (`IsCitedBy`,
+  `IsIdenticalTo`, `References`, ... pointing at itself), the record lost its DOI and kept the
+  self-relation: 28 records reached the blob with no DOI (Zenodo 1292418, 2528673, 13364746 and
+  others). The first DOI is now the record's own (`own_doi`); relations pointing at it are dropped
+  first, and only then are identifiers that leaked in from relations removed.
+- **`identifiers` carries only the record's own DOIs.** DOIs read off the poster or copied from the
+  depositor's related works stayed in `identifiers` on 11 records (18 DOIs, e.g. Figshare 10279754
+  with four). New `repair_identifiers` keeps the first DOI, the deposit DOI and DOIs containing the
+  record id (the collapsed legacy family DOIs, so CropTiPS 5483821 is unchanged) and removes the
+  rest without turning them into relations. `scripts/post_processing/repair_identifiers.py` applies
+  it to an existing corpus, restoring a lost DOI from the raw harvest; older Figshare version files
+  get no harvest DOI, since the harvest describes the latest version (idempotent, `--dry-run`).
+- **Two Zenodo deposits sharing a borrowed DOI deliver one record.** `find_borrowed_doi_copies`
+  dropped a borrowed-DOI Zenodo deposit only when another repository owned the DOI. When the only
+  holders are Zenodo deposits, the newest (highest record id) is now kept and the others dropped:
+  14837147 (kept 14947868) and 4420001 (kept 7446785), both sharing a ResearchGate DOI.
+
+### Added
+- `docs/IDENTIFIER_RULES.md`: what `identifiers` and `relatedIdentifiers` may contain, where each
+  rule is enforced, and the 2026-10-01 blob repair. `tests/test_identifier_rules.py`, one case per
+  record class from the review.
+
 ## [0.39.10] - 2026-09-29
 
 ### Changed

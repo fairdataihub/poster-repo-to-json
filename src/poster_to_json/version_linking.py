@@ -591,6 +591,12 @@ def find_borrowed_doi_copies(borrowed: Dict[str, str],
     A borrowed DOI that no other corpus record carries (a journal article or
     ResearchGate DOI, typically) is left alone: there is nothing to duplicate.
 
+    When no other repository's record owns the DOI but several Zenodo deposits
+    borrowed the same one (a poster deposited twice, each claiming the same
+    ResearchGate DOI), they are still one poster on one DOI: the newest deposit,
+    the highest Zenodo record id, is kept and the others are dropped. Zenodo
+    record ids increase over time, so this is deterministic.
+
     Args:
         borrowed: Zenodo record id -> the deposit's raw DOI, for deposits where
             :func:`is_borrowed_doi` is true.
@@ -601,9 +607,21 @@ def find_borrowed_doi_copies(borrowed: Dict[str, str],
         Zenodo record id -> the owner DOI, for each copy to drop.
     """
     drop = {}
+    by_doi: Dict[str, List[str]] = {}
     for rec_id, raw_doi in borrowed.items():
         doi = _normalize_doi(raw_doi)
         holders = owners.get(doi) or []
         if any(repo != "zenodo" for repo, _ in holders):
             drop[str(rec_id)] = doi
+        else:
+            by_doi.setdefault(doi, []).append(str(rec_id))
+    # Zenodo-only duplicates: keep the newest deposit of each shared borrowed DOI.
+    for doi, rec_ids in by_doi.items():
+        if len(set(rec_ids)) < 2:
+            continue
+        def _newest_key(r):
+            return (int(r), r) if r.isdigit() else (-1, r)
+        keep = max(set(rec_ids), key=_newest_key)
+        for r in set(rec_ids) - {keep}:
+            drop[r] = doi
     return drop

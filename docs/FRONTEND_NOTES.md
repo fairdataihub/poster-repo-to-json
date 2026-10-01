@@ -3,13 +3,20 @@
 Caveats for the platform / front-end when displaying auto-indexed poster records.
 These are properties of the data we deliver to the blob, not bugs to work around
 silently. Schema field mapping lives in the auto-indexing field-coverage sheet;
-version handling in `VERSION_LINKING.md`; license handling in `LICENSE_POLICY.md`.
+version handling in `VERSION_LINKING.md`; identifier rules in `IDENTIFIER_RULES.md`;
+license handling in `LICENSE_POLICY.md`.
 
 ## Identifiers
 
 - `identifiers[]` carries the poster's **DOI** (`identifierType: "DOI"`) and, for
   institutional Figshare deposits that mint no DOI, a **Handle**
   (`identifierType: "Handle"`). The DOI is the primary, resolvable identifier.
+- **The first DOI is the record's own.** `identifiers[]` holds only identifiers of
+  the poster itself; DOIs of papers, datasets or other works it cites belong in
+  `relatedIdentifiers[]`, and a record never lists itself there. More than one DOI
+  appears only for a collapsed legacy family (below). From 0.39.11 the pipeline
+  enforces this and the blob was repaired on 2026-10-01 (28 records had lost their
+  DOI, 11 carried extra DOIs). See `IDENTIFIER_RULES.md`.
 - **Legacy: a bare numeric id typed `"Other"`.** Records produced before
   poster-repo-to-json 0.39.6 also carry the raw Zenodo record id / Figshare article
   id as a second identifier typed `"Other"` (about 22,780 Zenodo and 9,894 Figshare
@@ -74,4 +81,8 @@ indexing pipeline. See `DUPLICATE_LINKING_PROPOSAL.md` for the tiers and rationa
 One kind is removed by the pipeline itself (0.39.8): a Zenodo deposit whose DOI
 was borrowed from a record in another repository that we also deliver (for
 example Zenodo 1196536, which carries Figshare 5467180 v3's DOI). The owning
-repository's record is kept and the Zenodo copy is not delivered.
+repository's record is kept and the Zenodo copy is not delivered. From 0.39.11,
+when two Zenodo deposits share one borrowed DOI and no other repository owns it,
+the newest deposit is kept (Zenodo 14947868 over 14837147, 7446785 over 4420001).
+The dropped records were never platform-only; if they were loaded earlier, they
+are stale rows the loader does not delete. See `IDENTIFIER_RULES.md`.

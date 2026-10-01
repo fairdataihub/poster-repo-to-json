@@ -842,6 +842,82 @@ _OA_FIELD_TO_DOMAIN = {
 }
 
 
+def _id_key(value) -> str:
+    """Compare identifiers case-insensitively, ignoring a doi.org prefix and trailing '/'."""
+    v = str(value or "").strip().lower()
+    v = re.sub(r"^https?://(dx\.)?doi\.org/", "", v)
+    return v.rstrip("/")
+
+
+def own_doi(record: dict):
+    """The record's own DOI: the first DOI in identifiers (the merger puts the
+    repository's identifiers first). None when the record carries no DOI."""
+    for i in record.get("identifiers") or []:
+        if (isinstance(i, dict) and str(i.get("identifierType", "")).upper() == "DOI"
+                and str(i.get("identifier", "")).strip()):
+            return str(i["identifier"]).strip()
+    return None
+
+
+def repair_identifiers(record: dict, source_doi=None, record_id=None) -> dict:
+    """One-time repair of a record's identifiers against its source deposit.
+
+    - Restores the deposit's own DOI as the first identifier when the record has
+      lost every DOI (an earlier cleanup dropped it when the depositor also
+      listed it as a related identifier pointing at the poster itself).
+    - Drops relations that point at the record's own DOI (self-references).
+    - Removes DOIs from identifiers that do not identify this record. A DOI is
+      the record's own when it is the first DOI, equals the source DOI, or
+      contains the record id (a per-version or concept DOI of the same item,
+      as kept when a legacy shared-DOI family is collapsed). Removed DOIs are
+      not turned into relations.
+
+    Returns a dict of what changed: restored (bool), self_relations (int),
+    removed_dois (list).
+    """
+    out = {"restored": False, "self_relations": 0, "removed_dois": []}
+    ids = record.get("identifiers")
+    if not isinstance(ids, list):
+        ids = []
+    has_doi = any(isinstance(i, dict) and str(i.get("identifierType", "")).upper() == "DOI"
+                  for i in ids)
+    if not has_doi and source_doi:
+        ids = [{"identifier": str(source_doi).strip(), "identifierType": "DOI"}] + ids
+        record["identifiers"] = ids
+        out["restored"] = True
+
+    own = own_doi(record)
+    own_keys = {_id_key(own)} if own else set()
+    if source_doi:
+        own_keys.add(_id_key(source_doi))
+
+    rel = record.get("relatedIdentifiers")
+    if isinstance(rel, list) and own_keys:
+        kept = [r for r in rel if not (isinstance(r, dict)
+                and _id_key(r.get("relatedIdentifier")) in own_keys)]
+        out["self_relations"] = len(rel) - len(kept)
+        if out["self_relations"]:
+            if kept:
+                record["relatedIdentifiers"] = kept
+            else:
+                record.pop("relatedIdentifiers", None)
+
+    rid = str(record_id or "").strip()
+    rid_re = re.compile(r"(?<!\d)" + re.escape(rid) + r"(?!\d)") if rid.isdigit() else None
+    new_ids = []
+    for i in record.get("identifiers") or []:
+        if isinstance(i, dict) and str(i.get("identifierType", "")).upper() == "DOI":
+            k = _id_key(i.get("identifier"))
+            is_own = (k == _id_key(own)) or (k in own_keys) or bool(rid_re and rid_re.search(k))
+            if not is_own:
+                out["removed_dois"].append(str(i.get("identifier")))
+                continue
+        new_ids.append(i)
+    if out["removed_dois"]:
+        record["identifiers"] = new_ids
+    return out
+
+
 def align_schema(record: dict) -> bool:
     """Phase-1 schema alignment (see SCHEMA_ALIGNMENT_PLAN.md): fixed resource
     type, ORCID/ROR schemeURI presence + casing, and stripping the fields the
@@ -988,19 +1064,37 @@ def align_schema(record: dict) -> bool:
                 pub.pop(k, None)
                 changed = True
 
-    # identifiers[] should carry only the poster's OWN identifiers; drop any that
-    # also appear in relatedIdentifiers (extraction reference DOIs that leaked in).
+    # identifiers[] should carry only the poster's OWN identifiers. The first DOI
+    # is the record's own (the repository's, which the merger puts first). Some
+    # depositors also list it as a related identifier pointing at itself
+    # (isCitedBy / isIdenticalTo / compiles ... its own DOI): that relation is a
+    # self-reference and is dropped, never the DOI. Any OTHER identifier that
+    # also appears in relatedIdentifiers is an extraction reference DOI that
+    # leaked in, and is dropped from identifiers.
     ids = record.get("identifiers")
     rel = record.get("relatedIdentifiers")
-    if isinstance(ids, list) and isinstance(rel, list):
-        relset = {str(r.get("relatedIdentifier", "")).strip() for r in rel
-                  if isinstance(r, dict) and r.get("relatedIdentifier")}
-        if relset:
-            new_ids = [i for i in ids if not (isinstance(i, dict)
-                       and str(i.get("identifier", "")).strip() in relset)]
-            if new_ids != ids:
-                record["identifiers"] = new_ids
+    if isinstance(ids, list):
+        own = own_doi(record)
+        if own and isinstance(rel, list):
+            kept_rel = [r for r in rel if not (isinstance(r, dict)
+                        and _id_key(r.get("relatedIdentifier")) == _id_key(own))]
+            if kept_rel != rel:
+                if kept_rel:
+                    record["relatedIdentifiers"] = kept_rel
+                else:
+                    record.pop("relatedIdentifiers", None)
+                rel = kept_rel
                 changed = True
+        if isinstance(rel, list):
+            relset = {_id_key(r.get("relatedIdentifier")) for r in rel
+                      if isinstance(r, dict) and r.get("relatedIdentifier")}
+            if relset:
+                new_ids = [i for i in ids if not (
+                    isinstance(i, dict)
+                    and _id_key(i.get("identifier")) in relset)]
+                if new_ids != ids:
+                    record["identifiers"] = new_ids
+                    changed = True
 
     return changed
 

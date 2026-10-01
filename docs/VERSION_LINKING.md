@@ -137,8 +137,12 @@ A related case is a Zenodo deposit that borrowed another repository's DOI
 instead of minting its own (Zenodo 1196536 carries Figshare 5467180 v3's DOI).
 When a record from that other repository is in the corpus, the Zenodo deposit is
 the same poster deposited twice, not a version, so `link_versions.py` drops it
-before linking (`find_borrowed_doi_copies`, 0.39.8). A borrowed DOI nothing else
-in the corpus carries, such as a journal DOI, is left alone.
+before linking (`find_borrowed_doi_copies`, 0.39.8). When two or more Zenodo
+deposits carry the same borrowed DOI and no other repository owns it, the newest
+deposit (highest record id) is kept and the others are dropped (0.39.11; Zenodo
+14837147 and 14947868 share one ResearchGate DOI, 14947868 is kept). A borrowed
+DOI only one deposit carries, such as a journal DOI, is left alone. The full
+identifier rules are in `IDENTIFIER_RULES.md`.
 
 ```
 "identifiers": [
