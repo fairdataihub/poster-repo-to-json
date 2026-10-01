@@ -26,6 +26,11 @@ license handling in `LICENSE_POLICY.md`.
   front-end still sees it. Do not display the bare numeric id as-is. If you need the
   repository id, take it from the DOI rather than the `Other` entry.
 
+- **Limitation: a DOI can resolve to a related paper.** A few Zenodo deposits
+  reused an existing DOI instead of getting their own, sometimes the DOI of a
+  paper the poster accompanies. We keep it so every record has a DOI. See
+  `IDENTIFIER_RULES.md`.
+
 ## Linking to the source repository
 
 - **Zenodo:** link to the record via the DOI, or `https://zenodo.org/records/<id>`.

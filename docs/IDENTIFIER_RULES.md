@@ -65,6 +65,19 @@ A DOI is a unique identifier, so two delivered records never share one.
 Both duplicate rules run in `link_versions.py` (`find_borrowed_doi_copies`),
 before version linking.
 
+## Known limitation: a deposit DOI that names another work
+
+Every record carries a DOI. A Zenodo depositor can enter an existing DOI instead
+of letting Zenodo mint one, and the record then has no Zenodo DOI. We use the
+DOI the deposit carries as the record's DOI, because it is the closest one
+available. In most cases it identifies the same item (ResearchGate copies marked
+`isIdenticalTo`). In some it identifies a related paper or abstract, and the
+depositor's own relation says so, for example Zenodo 4300392 (`isDocumentedBy`
+an SPIE paper), 4553934 (`isDerivedFrom` an A&A paper), 6417073, 7753238,
+14651929, 14824342 and 15192372. For these the DOI resolves to the paper, not
+the poster, and the depositor's relation to it is dropped as a self-relation.
+We accept this rather than leave the record without a DOI.
+
 ## Where each rule lives
 
 | Rule | Pipeline (new records) | Existing corpus |
