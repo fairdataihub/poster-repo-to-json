@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "poster-to-json"
-version = "0.39.11"
+version = "0.39.12"
 description = "Full pipeline: scrape, QC, extract (via poster2json), and enrich scientific posters to schema-conformant JSON"
 readme = "README.md"
 license = "MIT"
@@ -58,6 +58,7 @@ include = [
     "/README.md",
     "/LICENSE",
     "/src/poster_to_json/poster_schema.json",
+    "/src/poster_to_json/excluded_records.csv",
 ]
 
 [tool.black]

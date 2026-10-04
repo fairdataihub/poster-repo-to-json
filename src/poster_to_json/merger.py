@@ -23,6 +23,7 @@ from typing import Dict, List
 
 from tqdm import tqdm
 
+from .exclusions import exclusion_reason
 from .date_normalize import normalize_record_dates
 from .field_normalize import (
     normalize_conference, normalize_publisher, normalize_subjects,
@@ -590,7 +591,17 @@ class MetadataMerger:
         matched = set(ext_files.keys()) & set(meta_files.keys())
         logger.info(f"Found {len(matched)} matching files to merge")
 
-        stats = {"merged": 0, "extraction_only": 0, "metadata_only": 0, "errors": 0}
+        stats = {"merged": 0, "extraction_only": 0, "metadata_only": 0, "errors": 0,
+                 "excluded": 0}
+
+        # Reviewed non-posters (spam, vendor sheets) are never written.
+        repo = next((p.name.lower() for p in (out_path, meta_path, ext_path)
+                     if p.name.lower() in ("zenodo", "figshare")), "")
+        excluded = {k for k in matched if exclusion_reason(repo, k)}
+        for k in sorted(excluded):
+            logger.info(f"Excluded {repo}/{k}: {exclusion_reason(repo, k)}")
+        stats["excluded"] = len(excluded)
+        matched -= excluded
 
         for key in tqdm(sorted(matched), desc="Merging"):
             try:

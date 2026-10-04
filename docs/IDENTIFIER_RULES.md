@@ -65,6 +65,33 @@ A DOI is a unique identifier, so two delivered records never share one.
 Both duplicate rules run in `link_versions.py` (`find_borrowed_doi_copies`),
 before version linking.
 
+## 4. A record with no DOI takes its published abstract's DOI
+
+Every record should carry a DOI. Institutional Figshare posters often have only
+a Handle (Loughborough, Middlebury, Sussex and other repositories that do not
+mint DOIs). Some of these posters were also published as a meeting abstract or
+short paper and list that DOI among their related identifiers, for example the
+BMC Neuroscience meeting abstracts of Sussex posters 23431121 to 23431460 and
+the CHI paper of Sussex 23428856 ("Scented Material").
+
+When a record has no DOI, each related DOI's registered title is looked up
+(doi.org, which answers for Crossref and DataCite DOIs). The first whose title
+matches the poster's title (full title or the part before a colon, similarity
+0.9 or higher, at least 12 characters and two words) becomes the record's first
+identifier, and its relation is removed. A related DOI with a different title is
+a paper the poster cites and stays a relation; that poster keeps its Handle as
+its own identifier. `scripts/post_processing/adjacent_doi.py` applies this with
+a cache of looked-up titles (0.39.12).
+
+## 5. Reviewed non-posters are never delivered
+
+Customer service phone number spam and vendor product sheets deposited as
+posters are listed in `src/poster_to_json/excluded_records.csv` with the reason
+and the date of the decision. The merge step skips them, and
+`scripts/post_processing/apply_exclusions.py` removes ones already merged. A
+platform tombstone alone does not stop the next harvest bringing them back.
+The list is reviewed by hand; nothing is excluded by heuristic (0.39.12).
+
 ## Known limitation: a deposit DOI that names another work
 
 Every record carries a DOI. A Zenodo depositor can enter an existing DOI instead
@@ -85,6 +112,8 @@ We accept this rather than leave the record without a DOI.
 | Own identifiers only, no self-relations | `align_schema` in `field_normalize.py` | `scripts/post_processing/repair_identifiers.py` |
 | Restore a lost DOI from the raw harvest | not needed once `align_schema` is fixed | `repair_identifiers.py` |
 | One record per DOI | `find_borrowed_doi_copies` in `version_linking.py` | `link_versions.py` |
+| Published abstract DOI for records with none | `adjacent_doi.py` (network lookup, run as post-processing) | `scripts/post_processing/adjacent_doi.py` |
+| Excluded non-posters | merge step (`exclusions.py`) | `scripts/post_processing/apply_exclusions.py` |
 
 `repair_identifiers.py` reads each record's deposit DOI from
 `metadata/<repo>/<id>.json`. Older Figshare versions kept beside the latest one

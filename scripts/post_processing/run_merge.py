@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 sys.path.insert(0, "/home/james/poster-repo-to-json/src")
 from poster_to_json.schema_converter import SchemaConverter
 from poster_to_json.merger import MetadataMerger
+from poster_to_json.exclusions import exclusion_reason
 
 sys.path.insert(0, "/home/james/poster2json")
 from poster2json.extract import _postprocess_json
@@ -329,6 +330,9 @@ def main():
             matches = []
             for ext_stem, ext_file in ext_index.items():
                 rec_id = extract_record_id(ext_stem, source)
+                if rec_id and exclusion_reason(source, rec_id):
+                    merged_stems.add(ext_stem)  # reviewed non-poster: not merged, not copied as extraction-only
+                    continue
                 if rec_id and rec_id in meta_files and rec_id not in already_merged:
                     matches.append((rec_id, ext_stem, ext_file, meta_files[rec_id]))
 

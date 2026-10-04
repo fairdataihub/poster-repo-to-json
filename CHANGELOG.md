@@ -5,6 +5,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.12] - 2026-10-02
+
+### Added
+- **A record with no DOI takes the DOI of its own published abstract.** Institutional Figshare posters
+  often carry only a Handle. Some were also published as a meeting abstract or short paper and list
+  that DOI among their related identifiers (Sussex posters 23431121 to 23431460, BMC Neuroscience
+  abstracts; Sussex 23428856, a CHI paper). New `adjacent_doi` module: for a record without a DOI, the
+  first related DOI whose registered title matches the poster's title (full or before a colon,
+  similarity 0.9 or higher, at least 12 characters and two words) becomes its DOI and the relation is
+  dropped. A related DOI with a different title is a cited paper and stays a relation.
+  `scripts/post_processing/adjacent_doi.py` applies it with a cache of looked-up titles (doi.org
+  content negotiation, Crossref and DataCite). Found during the prod migration review, where prod
+  showed cited papers' DOIs on 23 Handle-only posters. Across the corpus 186 records have no DOI and
+  11 take one, all checked by hand; one of them (Sussex 26371504) gets its own abstract, where prod
+  showed the neighbouring abstract in the same supplement.
+- **Reviewed non-posters are never delivered.** `src/poster_to_json/excluded_records.csv` lists 14
+  Zenodo deposits (6 customer service phone number spam, 8 vendor product sheets) with the reason and
+  date. The merge step skips them and `scripts/post_processing/apply_exclusions.py` removes merged
+  copies. A platform tombstone does not stop the next harvest bringing them back.
+
 ## [0.39.11] - 2026-10-01
 
 ### Fixed
