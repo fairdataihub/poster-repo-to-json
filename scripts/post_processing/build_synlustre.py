@@ -123,7 +123,7 @@ def _embed(phrases, cache):
     return emb
 
 
-def build_synlustre(counts, eps, cache, pca_dims=0, ror_index=None):
+def build_synlustre(counts, eps, cache, pca_dims=0, ror_index=None, keep_remap=None):
     from sklearn.cluster import HDBSCAN
     from scipy.spatial.distance import cdist
 
@@ -162,7 +162,7 @@ def build_synlustre(counts, eps, cache, pca_dims=0, ror_index=None):
         rep_i = max(range(len(idxs)), key=lambda i: (counts[members[i]], -dists[i]))
         rep = members[rep_i]
         for m in members:
-            if m != rep:
+            if m != rep and (keep_remap is None or keep_remap(m, rep)):
                 synlustre[m] = rep                    # only store real remaps
         if len(members) > 1:
             clusters[rep] = sorted(members, key=lambda m: -counts[m])
@@ -195,6 +195,11 @@ def main():
                     help="0 = no PCA (full-dim, most granular). Only set for very large fields.")
     ap.add_argument("--ror-index", default=None,
                     help="pickle from build_ror_index.py; splits clusters spanning >=2 RORs.")
+    ap.add_argument("--ror-data", default=None,
+                    help="ROR data dump (json). For --field affiliation it is required: a remap "
+                         "that drops an identifying word (affiliation_merge_is_lossy) is not "
+                         "stored, so 'Library & Researcher Information Services' never maps "
+                         "to 'Library'.")
     ap.add_argument("--min-freq", type=int, default=1,
                     help="only cluster terms occurring >= this many times (rarer terms map to "
                          "themselves). Makes very large fields (e.g. subjects) tractable full-dim.")
@@ -206,7 +211,18 @@ def main():
         kept = Counter({k: v for k, v in counts.items() if v >= args.min_freq})
         print(f"[synlustre] min-freq {args.min_freq}: clustering {len(kept)}/{len(counts)} terms", flush=True)
         counts = kept
-    synlustre, clusters = build_synlustre(counts, args.eps, args.out + ".emb", args.pca_dims, ror_index)
+    keep_remap = None
+    if args.field == "affiliation":
+        if not args.ror_data:
+            ap.error("--field affiliation needs --ror-data (lossy-merge guard)")
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+        from poster_to_json.field_normalize import affiliation_merge_is_lossy, load_geo_tokens
+        geo = load_geo_tokens(args.ror_data)
+        keep_remap = lambda v, c: not affiliation_merge_is_lossy(v, c, geo)  # noqa: E731
+    synlustre, clusters = build_synlustre(counts, args.eps, args.out + ".emb", args.pca_dims,
+                                          ror_index, keep_remap)
     pickle.dump(synlustre, open(args.out, "wb"))
     with open(args.review, "w", encoding="utf-8") as o:
         o.write("representative\tfreq\tmerged_variants\n")

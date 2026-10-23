@@ -1528,6 +1528,78 @@ def drop_llm_affiliation_creators(record: dict, deposit_creator_names) -> bool:
     return True
 
 
+# Words a synonym merge may drop without losing which organization is meant.
+_AFFIL_STOPWORDS = frozenset({
+    "the", "of", "and", "for", "in", "at", "on", "a", "an", "to", "y", "e", "et", "und",
+    "de", "del", "della", "di", "du", "des", "der", "den", "la", "le", "les", "da", "do",
+    "dos", "das", "van", "von", "inc", "ltd", "llc", "gmbh", "co", "corp",
+})
+# Address words: an affiliation may lose its street address and stay the same place.
+_AFFIL_ADDRESS_WORDS = frozenset({
+    "street", "st", "str", "strasse", "avenue", "ave", "road", "rd", "drive", "dr", "blvd",
+    "boulevard", "lane", "way", "box", "po", "suite", "floor", "building", "bldg", "campus",
+    "usa", "us", "uk", "eu",
+})
+# Compound street names ("Musterstrasse", "Kalverstraat", "Nørregade" folds to "norregade").
+_AFFIL_STREET_SUFFIXES = ("strasse", "gasse", "straat", "gatan", "gade", "vej")
+
+
+def affiliation_tokens(name) -> list:
+    """Lower-case ASCII word tokens of an affiliation name (accents folded)."""
+    s = unicodedata.normalize("NFKD", str(name or "")).encode("ascii", "ignore").decode()
+    return re.findall(r"[a-z0-9]+", s.lower())
+
+
+def load_geo_tokens(ror_json_path, max_org_name_freq=300) -> frozenset:
+    """Place words from a ROR data dump: every word of a country or region name, and the
+    words of city names that are rare in organization names. A synonym merge that drops
+    only these ("University of Antwerp, Antwerp, Belgium" -> "University of Antwerp")
+    keeps the organization. City words that are common in organization names
+    ("University" Park, "Industry", "Research") are left out, so dropping them counts as
+    a loss."""
+    data = json.loads(open(ror_json_path, encoding="utf-8").read())
+    region, city, org_freq = set(), set(), {}
+    for org in data:
+        seen = set()
+        for n in org.get("names") or []:
+            seen.update(affiliation_tokens(n.get("value")))
+        for t in seen:
+            org_freq[t] = org_freq.get(t, 0) + 1
+        for loc in org.get("locations") or []:
+            g = loc.get("geonames_details") or {}
+            region.update(affiliation_tokens(g.get("country_name")))
+            region.update(affiliation_tokens(g.get("country_subdivision_name")))
+            city.update(affiliation_tokens(g.get("name")))
+    return frozenset(region | {t for t in city if org_freq.get(t, 0) < max_org_name_freq})
+
+
+def _drops_identifying_word(src, dst, geo_tokens, paren) -> bool:
+    kept = set(affiliation_tokens(dst))
+    for t in affiliation_tokens(src):
+        if (t in kept or len(t) < 2 or t.isdigit() or t in _AFFIL_STOPWORDS
+                or t in _AFFIL_ADDRESS_WORDS or t in geo_tokens or t in paren
+                or (len(t) > 6 and t.endswith(_AFFIL_STREET_SUFFIXES))):
+            continue
+        return True
+    return False
+
+
+def affiliation_merge_is_lossy(variant, canonical, geo_tokens=frozenset()) -> bool:
+    """True when mapping affiliation `variant` to `canonical` changes which organization
+    is meant. Either the canonical drops an identifying word ("Library & Researcher
+    Information Services" -> "Library", "Department of X, University of California" ->
+    "Department of X"), or it adds one ("Wroclaw University" -> "Wroclaw University of
+    Economics and Business", a different university). Stopwords, legal suffixes, place
+    names (`geo_tokens`), address words, numbers, single letters and acronyms in
+    parentheses do not count. Rewording that keeps every word ("University of Heidelberg"
+    -> "Heidelberg University") is not lossy."""
+    paren = set()
+    for inner in re.findall(r"\(([^)]*)\)", f"{variant or ''} {canonical or ''}"):
+        paren.update(affiliation_tokens(inner))
+    return (_drops_identifying_word(variant, canonical, geo_tokens, paren)
+            or _drops_identifying_word(canonical, variant, geo_tokens, paren))
+
+
 def normalize_affiliation_names(record: dict) -> bool:
     """Clean and split creator affiliation NAMES in place. Per creator: NFKC-normalize
     each name; drop any entry whose name holds no letter (Unicode-aware via _has_letter,

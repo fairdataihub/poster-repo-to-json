@@ -126,8 +126,22 @@ def main():
     ap.add_argument("--merged-dir", required=True)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--show", type=int, default=0)
+    ap.add_argument("--ror-data", default=None,
+                    help="ROR data dump (json); required for --field affiliation. Remaps that "
+                         "drop an identifying word (affiliation_merge_is_lossy) are skipped, "
+                         "also for maps built before build_synlustre had this guard.")
     args = ap.parse_args()
     syn = pickle.load(open(args.synlustre, "rb"))
+    if args.field == "affiliation":
+        if not args.ror_data:
+            ap.error("--field affiliation needs --ror-data (lossy-merge guard)")
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+        from poster_to_json.field_normalize import affiliation_merge_is_lossy, load_geo_tokens
+        geo = load_geo_tokens(args.ror_data)
+        n = len(syn)
+        syn = {v: c for v, c in syn.items() if not affiliation_merge_is_lossy(v, c, geo)}
+        logger.info(f"skipping {n - len(syn)} lossy affiliation remaps")
     logger.info(f"[{'DRY-RUN' if args.dry_run else 'LIVE'}] apply {args.field} synlustre ({len(syn)} remaps)  merged={args.merged_dir}")
     stats, samples = run(args.merged_dir, args.field, syn, args.dry_run, args.show or None)
     for s in samples:

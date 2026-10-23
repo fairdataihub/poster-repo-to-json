@@ -5,6 +5,35 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.0] - 2026-10-23
+
+### Fixed
+- **Affiliation synonym merges no longer change which organization is meant.** The affiliation
+  synlustre map sends each variant to its cluster's most frequent name, and a short, generic
+  name absorbed specific ones: on posters.science/discover/21939 the printed "Library &
+  Researcher Information Services" (UL Research Institutes) showed as "Library". The same map
+  sent "The Hockaday School" to "The Hotchkiss School", "Eurofins (France)" to "Euro-Funding"
+  and "Key Laboratory" to the typo "Kay Laboratory". New `affiliation_merge_is_lossy` in
+  `field_normalize` flags a remap whose canonical drops or adds an identifying word; place
+  names (from the ROR dump, `load_geo_tokens`), address words, stopwords, numbers and
+  parenthesized acronyms do not count. About half of the 13,582 remaps in the July map are
+  lossy.
+  - `build_synlustre.py` and `apply_synlustre.py` require `--ror-data` for affiliations and
+    never store or apply a lossy remap.
+  - `restore_lossy_affiliation_merges.py` repairs the delivered corpus: an affiliation equal
+    to the canonical of a lossy remap goes back to the creator's own wording, found in the
+    pre-merge snapshot, the deposit or the extraction. A source that itself says the
+    canonical is left alone.
+
+### Added
+- **Registrant ROR affiliations from DataCite, for Figshare and Zenodo.** Figshare's API has no
+  affiliations, and DataCite was only read for Zenodo records and without `?affiliation=true`,
+  so the ROR affiliations repositories register (UL Research Institutes, ror.org/045n75910, for
+  every ULRI poster) never reached the records. `backfill_datacite_ror_affiliations.py` fetches
+  DataCite with affiliations (cached, parallel, under the rate limit) and, for each matching
+  creator, adds the ROR affiliation named by the ROR display name, or puts the id on an
+  affiliation with exactly that name. The id comes from the repository, so it is used as given.
+
 ## [0.39.12] - 2026-10-02
 
 ### Added

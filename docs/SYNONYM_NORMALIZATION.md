@@ -276,6 +276,36 @@ many multi-institution clusters were split.
 
 ---
 
+## 4b. The lossy-merge guard for affiliations
+
+Choosing the most frequent variant as the canonical has a failure the holdout does not
+cover: a short, generic name that is common in the corpus absorbs longer, specific ones. On
+posters.science "Library & Researcher Information Services" (UL Research Institutes) showed
+as "Library", and the same map sent "The Hockaday School" to "The Hotchkiss School" and
+"Eurofins (France)" to "Euro-Funding". About half of the 13,582 remaps in the July 2026
+affiliation map drop a word that identifies the organization.
+
+`affiliation_merge_is_lossy(variant, canonical, geo_tokens)` in `field_normalize.py` flags
+such a remap: the canonical must keep every word of the variant except stopwords, legal
+suffixes, address words, numbers, single letters, a parenthesized acronym, and place names.
+Place names come from the ROR data dump (`load_geo_tokens`): every country and region word,
+and city words that are rare in organization names (a town called "University Park" does not
+make "university" a place word). Rewording that keeps the words ("University of Heidelberg"
+to "Heidelberg University") passes.
+
+- `build_synlustre.py --field affiliation` requires `--ror-data` and does not store lossy
+  remaps.
+- `apply_synlustre.py --field affiliation` requires `--ror-data` and skips lossy remaps, also
+  for maps built before the guard.
+- `restore_lossy_affiliation_merges.py` repairs a corpus the old map already rewrote. For each
+  creator affiliation equal to the canonical of a lossy remap, it looks in that creator's own
+  sources (deposit metadata, poster2json extraction, and an optional pre-merge snapshot) for a
+  variant the map sent there. Exactly one such variant replaces the canonical; anything else
+  is left alone.
+
+The guard trades some facet consolidation for correctness: an affiliation keeps the
+author's wording rather than a shorter name that may mean something else.
+
 ## 5. Deterministic pre-clustering cleaners (`field_normalize.py`)
 
 Clustering only sees what survives the deterministic layer. The relevant normalizers:

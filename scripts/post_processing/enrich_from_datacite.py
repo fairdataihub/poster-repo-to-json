@@ -14,8 +14,9 @@ Per SCHEMA_ALIGNMENT_PLAN.md + locked decisions:
     self-links to Zenodo concept/versions filtered out) with existing ones.
   - subjects: union DataCite subjects with existing (dedup).
   - descriptions: if DataCite has an "Other" (summary), use it over the LLM one.
-Affiliation ROR is NOT sourced here (DataCite affiliation is name-only); the
-text-matcher remains the ROR source. align_schema is re-run at the end.
+Affiliation ROR is not sourced here: the cached records were fetched without
+?affiliation=true, so they hold names only. backfill_datacite_ror_affiliations.py adds the
+registrant's ROR affiliations for Zenodo and Figshare records. align_schema is re-run at the end.
 
 Usage:
     python enrich_from_datacite.py --merged-dir <m>/zenodo --cache-dir <c> --dry-run [--show N]

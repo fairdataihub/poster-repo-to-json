@@ -190,10 +190,13 @@ python scripts/run_merge.py
 
 Free-text organizational fields (`publisher`, `fundingReferences.funderName`, `creators.affiliation`, `subjects`) arrive in dozens of spelling and formatting variants for the same real entity. A corpus-wide pass collapses those variants to a canonical form so the same institution, funder, or subject reads consistently across records. The full settings live in [docs/SYNONYM_NORMALIZATION.md](docs/SYNONYM_NORMALIZATION.md).
 
-The approach ("synonym-lustre", `scripts/post_processing/build_synlustre.py`) embeds the distinct terms of a field with `gte-large`, clusters them with HDBSCAN, and maps every cluster member to the most frequent variant (embedding-centroid distance breaks ties). Two guards keep the merge conservative:
+The approach ("synonym-lustre", `scripts/post_processing/build_synlustre.py`) embeds the distinct terms of a field with `gte-large`, clusters them with HDBSCAN, and maps every cluster member to the most frequent variant (embedding-centroid distance breaks ties). Three guards keep the merge conservative:
 
 - **ROR split.** A semantic cluster that spans two or more distinct RORs (e.g. *University of Washington* vs *Washington University*) is partitioned by ROR before a canonical is chosen, so distinct institutions never collapse together. ROR-less members attach to the nearest ROR sub-centroid.
 - **Acronym / short-token holdout.** Terms under 4 characters and all-caps single tokens (`ZHAW`, `LUH`, `GTC`) carry too little signal to place reliably, so they are held out of clustering and map to themselves — only distinguishable multi-word / mixed-case names are merged.
+- **Lossy-merge guard (affiliations).** A remap whose canonical drops a word that identifies the organization ("Library & Researcher Information Services" to "Library") is not stored or applied. Dropping place names, address words, stopwords or a parenthesized acronym is allowed. `restore_lossy_affiliation_merges.py` repairs records rewritten by older maps.
+
+Registrant affiliations: `backfill_datacite_ror_affiliations.py` adds the ROR affiliations a repository registered with DataCite (requested with `?affiliation=true`) to each matching creator, for Zenodo and Figshare records alike. The ROR id comes from the repository, so it is used as given and named by the ROR display name.
 
 Conference locations are normalized separately by **geocoding** (`conference_location_geocode.py`, Nominatim/OSM): variant strings that resolve to the same real place collapse, while genuinely different cities stay apart (a string embedding would wrongly merge "Graz" and "Vienna" as both "city in Austria"). Clustering quality is guarded by a **V-measure validation harness** (`validate_vmeasure.py`), which scores homogeneity/completeness against a gold set to pick and regression-check the epsilon per field.
 
