@@ -23,7 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `restore_lossy_affiliation_merges.py` repairs the delivered corpus: an affiliation equal
     to the canonical of a lossy remap goes back to the creator's own wording, found in the
     pre-merge snapshot, the deposit or the extraction. A source that itself says the
-    canonical is left alone.
+    canonical is left alone. Delivered 2026-10-23: 11,831 affiliations restored in 6,066
+    records (10,062 pre-2025, 1,769 in 2025).
 
 ### Added
 - **Registrant ROR affiliations from DataCite, for Figshare and Zenodo.** Figshare's API has no
@@ -33,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   DataCite with affiliations (cached, parallel, under the rate limit) and, for each matching
   creator, adds the ROR affiliation named by the ROR display name, or puts the id on an
   affiliation with exactly that name. The id comes from the repository, so it is used as given.
+  Delivered 2026-10-23: 15,377 ROR affiliations added or identified in 5,914 records (6,860
+  pre-2025, 8,517 in 2025). Both backfills were checked idempotent and synced to
+  `poster_index_19860101-20241231/merged` and `poster_index_20250101-20251231/merged`.
 
 ## [0.39.12] - 2026-10-02
 
