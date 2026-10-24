@@ -1540,6 +1540,11 @@ _AFFIL_ADDRESS_WORDS = frozenset({
     "boulevard", "lane", "way", "box", "po", "suite", "floor", "building", "bldg", "campus",
     "usa", "us", "uk", "eu",
 })
+# Contractions that are not a prefix of the word they stand for; other abbreviations
+# ("Univ", "Inst", "Lab") match any word they start. Mirrors fairly.identity.
+_AFFIL_CONTRACTIONS = {"dept": "department", "ctr": "center", "natl": "national",
+                       "govt": "government", "intl": "international", "assn": "association",
+                       "hosp": "hospital"}
 # Compound street names ("Musterstrasse", "Kalverstraat", "Nørregade" folds to "norregade").
 _AFFIL_STREET_SUFFIXES = ("strasse", "gasse", "straat", "gatan", "gade", "vej")
 
@@ -1573,10 +1578,26 @@ def load_geo_tokens(ror_json_path, max_org_name_freq=300) -> frozenset:
     return frozenset(region | {t for t in city if org_freq.get(t, 0) < max_org_name_freq})
 
 
+def _fold_plural(t):
+    if len(t) > 4 and t.endswith("ies"):
+        return t[:-3] + "y"
+    return t[:-1] if len(t) > 3 and t.endswith("s") and not t.endswith("ss") else t
+
+
+def _word_kept(t, kept) -> bool:
+    """Is `t` in `kept`, allowing a plural ending and an abbreviation on either side
+    ("univ" <-> "university", "dept" <-> "department")?"""
+    if _fold_plural(t) in kept or _AFFIL_CONTRACTIONS.get(t) in kept:
+        return True
+    if any(_AFFIL_CONTRACTIONS.get(k) == t for k in kept):
+        return True
+    return any((len(t) >= 3 and k.startswith(t)) or (len(k) >= 3 and t.startswith(k)) for k in kept)
+
+
 def _drops_identifying_word(src, dst, geo_tokens, paren) -> bool:
-    kept = set(affiliation_tokens(dst))
+    kept = {_fold_plural(t) for t in affiliation_tokens(dst)}
     for t in affiliation_tokens(src):
-        if (t in kept or len(t) < 2 or t.isdigit() or t in _AFFIL_STOPWORDS
+        if (_word_kept(t, kept) or len(t) < 2 or t.isdigit() or t in _AFFIL_STOPWORDS
                 or t in _AFFIL_ADDRESS_WORDS or t in geo_tokens or t in paren
                 or (len(t) > 6 and t.endswith(_AFFIL_STREET_SUFFIXES))):
             continue
@@ -1591,8 +1612,10 @@ def affiliation_merge_is_lossy(variant, canonical, geo_tokens=frozenset()) -> bo
     "Department of X"), or it adds one ("Wroclaw University" -> "Wroclaw University of
     Economics and Business", a different university). Stopwords, legal suffixes, place
     names (`geo_tokens`), address words, numbers, single letters and acronyms in
-    parentheses do not count. Rewording that keeps every word ("University of Heidelberg"
-    -> "Heidelberg University") is not lossy."""
+    parentheses do not count; plurals fold and abbreviations match ("Univ." ->
+    "University", "Dept." -> "Department"). Rewording that keeps every word ("University
+    of Heidelberg" -> "Heidelberg University") is not lossy. Same rule as
+    fairly.identity.changes_identity."""
     paren = set()
     for inner in re.findall(r"\(([^)]*)\)", f"{variant or ''} {canonical or ''}"):
         paren.update(affiliation_tokens(inner))

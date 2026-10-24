@@ -43,6 +43,9 @@ def test_harmless_merges_pass():
         ("U.S. Environmental Protection Agency", "Environmental Protection Agency"),
         ("KTH Royal Institute of Technology, Stockholm, Sweden", "KTH Royal Institute of Technology"),
         ("Example GmbH, Musterstrasse 12, 10115", "Example GmbH"),
+        ("Stanford Univ.", "Stanford University"),
+        ("Dept. of Physics, Example Inst.", "Department of Physics, Example Institute"),
+        ("University Libraries", "University Library"),
     ]:
         assert not affiliation_merge_is_lossy(variant, canonical, GEO), (variant, canonical)
 
