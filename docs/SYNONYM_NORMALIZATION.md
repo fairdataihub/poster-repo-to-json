@@ -276,35 +276,59 @@ many multi-institution clusters were split.
 
 ---
 
-## 4b. The lossy-merge guard for affiliations
+## 4b. The identity rule: a merge must keep the organization
 
 Choosing the most frequent variant as the canonical has a failure the holdout does not
-cover: a short, generic name that is common in the corpus absorbs longer, specific ones. On
+cover: a name common in the corpus absorbs others that mean another organization. On
 posters.science "Library & Researcher Information Services" (UL Research Institutes) showed
-as "Library", and the same map sent "The Hockaday School" to "The Hotchkiss School" and
-"Eurofins (France)" to "Euro-Funding". About half of the 13,582 remaps in the July 2026
-affiliation map drop a word that identifies the organization.
+as "Library"; the July 2026 maps also sent "The Hockaday School" to "The Hotchkiss School",
+"New Mexico State University" to "University of New Mexico" (keeping New Mexico State's ROR
+id), "Wroclaw University of Economics and Business" to "Wroclaw University of Environmental
+and Life Sciences", and the funder "National Research Fund" to "U.S. National Science
+Foundation".
 
-`affiliation_merge_is_lossy(variant, canonical, geo_tokens)` in `field_normalize.py` flags
-such a remap: the canonical must keep every word of the variant except stopwords, legal
-suffixes, address words, numbers, single letters, a parenthesized acronym, and place names.
-Place names come from the ROR data dump (`load_geo_tokens`): every country and region word,
-and city words that are rare in organization names (a town called "University Park" does not
-make "university" a place word). Rewording that keeps the words ("University of Heidelberg"
-to "Heidelberg University") passes.
+`field_normalize.IdentityRule` (`load_identity_rule(ror_dump)`) decides whether two names
+mean the same organization. It is fairly's identity rule (`fairly.identity`, fair-ly-accurate
+0.5.0) plus the ROR names:
 
-- `build_synlustre.py --field affiliation` requires `--ror-data` and does not store lossy
-  remaps.
-- `apply_synlustre.py --field affiliation` requires `--ror-data` and skips lossy remaps, also
-  for maps built before the guard.
-- `restore_lossy_affiliation_merges.py` repairs a corpus the old map already rewrote. For each
-  creator affiliation equal to the canonical of a lossy remap, it looks in that creator's own
-  sources (deposit metadata, poster2json extraction, and an optional pre-merge snapshot) for a
-  variant the map sent there. Exactly one such variant replaces the canonical; anything else
-  is left alone.
+- an identifying word may not be dropped or added; stopwords in several languages, legal
+  suffixes, address words and an acronym in parentheses do not count; plurals, spelling
+  variants (ae/oe/ue, -re/-er, generic org words across languages), contractions and
+  prefix abbreviations ("Univ.", "Calif") match;
+- a place word, number or single letter may be dropped or added, never swapped ("Ohio State
+  University" vs "Iowa State University", "Paris 1" vs "Paris 8");
+- a name may not reduce to generic words only ("Columbia University" vs "University");
+- two names that are exact ROR names of different organizations differ, whatever their
+  words ("Washington University" vs "University of Washington").
 
-The guard trades some facet consolidation for correctness: an affiliation keeps the
-author's wording rather than a shorter name that may mean something else.
+Place and generic words come from the ROR dump (`fairly.authorities.ror.identity_words_from_orgs`).
+`affiliation_merge_is_lossy(variant, canonical, rule)` applies the rule; it is used for
+affiliations, publishers and funders.
+
+- `build_synlustre.py` / `apply_synlustre.py --field affiliation` require `--ror-data` and never
+  store or apply a remap the rule rejects.
+- `restore_lossy_affiliation_merges.py` repairs a corpus an older map rewrote. The evidence is
+  the pre-merge snapshot (`--snapshot-dir`): an affiliation the creator has now but neither the
+  snapshot nor any source has, paired with the snapshot wording the creator no longer has, is a
+  rename; when the rule rejects it, the snapshot wording goes back, with the snapshot entry's
+  ROR id. Without snapshot evidence nothing changes (the 2025 corpus never had the map applied).
+- `restore_lossy_funder_merges.py` does the same for funder names against the funding the
+  deposit registered with DataCite (Zenodo) or the snapshot (Figshare), position by position.
+- `fix_publishers.py --extractions-dir` puts back the poster's own extraction publisher where a
+  merge turned it into another organization.
+- `audit_identifiers.py` checks that every ROR / Crossref Funder id names its own text's
+  organization; `--fix` replaces a mismatched id with the exact ROR match of the name, or removes
+  it. With `--cache-dir` an id the record's DOI registered with DataCite (or the successor of a
+  retired one) is never changed, so a renamed organization keeps its registrant id.
+
+Order for a corpus the July 2026 maps rewrote (each step idempotent): restore affiliations,
+restore funders, restore publishers (`fix_publishers.py --extractions-dir`), repair ids,
+repair subjects (`build_subject_surface_map.py --repair-corpus`), DataCite ROR affiliations,
+registrant publishers (`fix_publishers.py --cache-dir`), conference locations
+(`conference_location_geocode.py --repair`).
+
+The rule trades some facet consolidation for correctness: an affiliation keeps the author's
+wording rather than a name that may mean something else.
 
 ## 5. Deterministic pre-clustering cleaners (`field_normalize.py`)
 
@@ -342,29 +366,47 @@ dedicated, non-embedding path. A string embedding would merge "Graz" and "Vienna
 "city in Austria"); geocoding tells them apart and unifies the spelling/format variants of
 each. This is the location analogue of the ROR split.
 
-Four resumable, cached stages:
+Five resumable, cached stages:
 
 | Stage | What it does |
 |-------|--------------|
 | `--collect` | Scan `conference.conferenceLocation` across the corpus; cache distinct strings + counts to `<work>.terms.json`. NFKC + whitespace-collapse per string (`_norm_q`). |
-| `--geocode` | Geocode each distinct string via **Nominatim (OpenStreetMap)** through `geopy`, resolving to country + city. Caches to `<work>.geo.json`. |
-| `--build` | Group by resolved `(country_code, city.lower())`; canonical = `"City, Country"`. Emit `<work>.map.pickle` + `<work>_review.tsv`. |
+| `--geocode` | Geocode each distinct string via **Nominatim (OpenStreetMap)** through `geopy`, with address and name details; a string that names no country also keeps the next four answers. Caches the raw answers to `<work>.geo.json`. |
+| `--build` | Keep only answers `verify_place` accepts (below); group by `(country_code, place name)`; canonical = `"City, Country"`. Emit `<work>.map.pickle` + `<work>_review.tsv`. |
 | `--apply` | Rewrite `conference.conferenceLocation` in the corpus from the map. |
+| `--repair` | For a corpus earlier maps already rewrote (`--old-map`, one or more): find the text each record's location was written from in its own sources (pre-merge snapshot, Zenodo meeting place, extractions) and set the new map's value for it, or the text itself. Poster template text ("Conference Location", "City, Country", a bare date) is removed. |
 
-Geocoding specifics (verified):
+A geocoder answers every query with its best guess, so an answer is used only when it
+verifiably names the text's place (fair-ly-accurate `fairly.authorities.geocode.verify_place`):
 
-- `Nominatim(user_agent="posters-science-conf-loc/1.0", timeout=10)`.
-- Rate-limited via `geopy.extra.rate_limiter.RateLimiter`, `min_delay_seconds = --sleep`
-  (**default 1.1s**), `swallow_exceptions=True`. The default respects Nominatim's ≥1 req/sec
-  usage policy.
-- Query uses `addressdetails=True, language="en"`.
-- **City resolution** walks: `city → town → village → municipality → state → county`.
-- The geocode cache is flushed to disk every 50 lookups, so the stage is fully resumable.
-- **Build only keeps entries** that resolved to both a `city` and a `country`; unresolved
-  strings are left untouched in the corpus.
+- it is a place (Nominatim class `place` or `boundary`), not a street, building or venue that
+  carries the name ("Conference Location" is a social centre in Russia, "Ithaca, NY, U.S.A." a
+  road in Sydney);
+- one of its names appears in the text as whole words: its own, alternative, official or
+  English name, or, when the text names the country, a name in any language ("Wien" names
+  Vienna; "CERN" does not name Chern); administrative wrappers ("City of Rochester") are
+  ignored and German transliterations ("Goettingen") match;
+- every country or US state the text names agrees ("Venice (Italy)" never lands in Austria);
+- a village or other small place counts only when the text names its country or state;
+- a text that names no country is ambiguous when another country has a place it names
+  ranked within 0.15 importance of the best answer ("Cambridge", "Valencia").
+
+The canonical is the place's own English name and country ("Milano" -> "Milan, Italy"); an
+area above a settlement keeps the name the text used ("Padova" -> "Padova, Italy"), never the
+region an address falls back to ("Pisa" -> "Tuscany"). Purely virtual locations ("Online",
+"Zoom") are never geocoded. Anything that fails stays as written.
+
+The first version (July 2026) took the geocoder's guess as is and walked
+`city -> town -> village -> municipality -> state -> county`, which wrote "Nizhniy Arkhyz,
+Russia" for "Conference Location", "Chern, Russia" for "CERN" and "Tuscany, Italy" for "Pisa,
+Italy". 0.41.0 re-geocoded every string with details and repaired the corpus with `--repair`.
+
+Geocoding specifics: `Nominatim(user_agent="posters-science-conf-loc/1.1", timeout=20)`, one
+request per `--sleep` seconds (default 1.1, Nominatim's policy is at most 1 per second), cache
+flushed every 50 lookups.
 
 ```bash
-# staged (pubverse env; needs geopy)
+# staged (pubverse env; needs geopy and fair-ly-accurate)
 W=/storage/poster-work/loc
 G='/storage/poster-work/*/merged/*/*.json'
 ~/myenv/bin/python scripts/post_processing/conference_location_geocode.py --collect --merged-glob "$G" --work "$W"

@@ -1528,99 +1528,78 @@ def drop_llm_affiliation_creators(record: dict, deposit_creator_names) -> bool:
     return True
 
 
-# Words a synonym merge may drop without losing which organization is meant.
-_AFFIL_STOPWORDS = frozenset({
-    "the", "of", "and", "for", "in", "at", "on", "a", "an", "to", "y", "e", "et", "und",
-    "de", "del", "della", "di", "du", "des", "der", "den", "la", "le", "les", "da", "do",
-    "dos", "das", "van", "von", "inc", "ltd", "llc", "gmbh", "co", "corp",
-})
-# Address words: an affiliation may lose its street address and stay the same place.
-_AFFIL_ADDRESS_WORDS = frozenset({
-    "street", "st", "str", "strasse", "avenue", "ave", "road", "rd", "drive", "dr", "blvd",
-    "boulevard", "lane", "way", "box", "po", "suite", "floor", "building", "bldg", "campus",
-    "usa", "us", "uk", "eu",
-})
-# Contractions that are not a prefix of the word they stand for; other abbreviations
-# ("Univ", "Inst", "Lab") match any word they start. Mirrors fairly.identity.
-_AFFIL_CONTRACTIONS = {"dept": "department", "ctr": "center", "natl": "national",
-                       "govt": "government", "intl": "international", "assn": "association",
-                       "hosp": "hospital"}
-# Compound street names ("Musterstrasse", "Kalverstraat", "Nørregade" folds to "norregade").
-_AFFIL_STREET_SUFFIXES = ("strasse", "gasse", "straat", "gatan", "gade", "vej")
-
-
 def affiliation_tokens(name) -> list:
     """Lower-case ASCII word tokens of an affiliation name (accents folded)."""
     s = unicodedata.normalize("NFKD", str(name or "")).encode("ascii", "ignore").decode()
     return re.findall(r"[a-z0-9]+", s.lower())
 
 
-def load_geo_tokens(ror_json_path, max_org_name_freq=300) -> frozenset:
-    """Place words from a ROR data dump: every word of a country or region name, and the
-    words of city names that are rare in organization names. A synonym merge that drops
-    only these ("University of Antwerp, Antwerp, Belgium" -> "University of Antwerp")
-    keeps the organization. City words that are common in organization names
-    ("University" Park, "Industry", "Research") are left out, so dropping them counts as
-    a loss."""
-    data = json.loads(open(ror_json_path, encoding="utf-8").read())
-    region, city, org_freq = set(), set(), {}
-    for org in data:
-        seen = set()
+def _ror_name_key(name) -> str:
+    """Case-, accent- and punctuation-insensitive form of an organization name, without a
+    leading "The"; "&" reads as "and"."""
+    s = unicodedata.normalize("NFKD", str(name or "")).encode("ascii", "ignore").decode().lower()
+    toks = re.findall(r"[a-z0-9]+", s.replace("&", " and "))
+    return " ".join(toks[1:] if toks[:1] == ["the"] else toks)
+
+
+class IdentityRule:
+    """Does a merge change which organization is meant? fairly's identity rule
+    (fairly.identity.changes_identity: an identifying word dropped or added, a place word,
+    number or letter swapped, or a name reduced to generic words only), with place and
+    generic words from a ROR dump, plus the ROR names themselves: two names that are
+    exact ROR names of different organizations name different organizations whatever
+    their words ("Washington University" vs "University of Washington", "Miami
+    University" vs "University of Miami"). Build it once with load_identity_rule()."""
+
+    def __init__(self, place_words=frozenset(), generic_words=None, ror_names=None):
+        from fairly.identity import IdentityGuard
+        self.guard = IdentityGuard(place_words, generic_words)
+        self.ror_names = ror_names or {}
+
+    def ror_conflict(self, a, b) -> bool:
+        ia, ib = self.ror_names.get(_ror_name_key(a)), self.ror_names.get(_ror_name_key(b))
+        return bool(ia and ib and not (ia & ib))
+
+    def changes_identity(self, variant, canonical) -> bool:
+        return bool(self.guard(variant, canonical) or self.ror_conflict(variant, canonical))
+
+
+def load_identity_rule(ror_json_path) -> IdentityRule:
+    """IdentityRule from a ROR v2 data dump (parsed once): fairly's place and generic
+    words (fairly.authorities.ror.identity_words_from_orgs) and each organization's names
+    (display, alias, label, acronym; acronyms of 4 or more letters only)."""
+    from fairly.authorities.ror import identity_words_from_orgs
+    orgs = json.loads(open(ror_json_path, encoding="utf-8").read())
+    place, generic = identity_words_from_orgs(orgs)
+    names = {}
+    for org in orgs:
         for n in org.get("names") or []:
-            seen.update(affiliation_tokens(n.get("value")))
-        for t in seen:
-            org_freq[t] = org_freq.get(t, 0) + 1
-        for loc in org.get("locations") or []:
-            g = loc.get("geonames_details") or {}
-            region.update(affiliation_tokens(g.get("country_name")))
-            region.update(affiliation_tokens(g.get("country_subdivision_name")))
-            city.update(affiliation_tokens(g.get("name")))
-    return frozenset(region | {t for t in city if org_freq.get(t, 0) < max_org_name_freq})
+            v = n.get("value")
+            if not v or ("acronym" in (n.get("types") or []) and len(str(v)) < 4):
+                continue
+            k = _ror_name_key(v)
+            if k:
+                names.setdefault(k, set()).add(org.get("id"))
+    return IdentityRule(place, generic, {k: frozenset(v) for k, v in names.items()})
 
 
-def _fold_plural(t):
-    if len(t) > 4 and t.endswith("ies"):
-        return t[:-3] + "y"
-    return t[:-1] if len(t) > 3 and t.endswith("s") and not t.endswith("ss") else t
+def load_geo_tokens(ror_json_path) -> IdentityRule:
+    """Deprecated name of load_identity_rule()."""
+    return load_identity_rule(ror_json_path)
 
 
-def _word_kept(t, kept) -> bool:
-    """Is `t` in `kept`, allowing a plural ending and an abbreviation on either side
-    ("univ" <-> "university", "dept" <-> "department")?"""
-    if _fold_plural(t) in kept or _AFFIL_CONTRACTIONS.get(t) in kept:
-        return True
-    if any(_AFFIL_CONTRACTIONS.get(k) == t for k in kept):
-        return True
-    return any((len(t) >= 3 and k.startswith(t)) or (len(k) >= 3 and t.startswith(k)) for k in kept)
-
-
-def _drops_identifying_word(src, dst, geo_tokens, paren) -> bool:
-    kept = {_fold_plural(t) for t in affiliation_tokens(dst)}
-    for t in affiliation_tokens(src):
-        if (_word_kept(t, kept) or len(t) < 2 or t.isdigit() or t in _AFFIL_STOPWORDS
-                or t in _AFFIL_ADDRESS_WORDS or t in geo_tokens or t in paren
-                or (len(t) > 6 and t.endswith(_AFFIL_STREET_SUFFIXES))):
-            continue
-        return True
-    return False
-
-
-def affiliation_merge_is_lossy(variant, canonical, geo_tokens=frozenset()) -> bool:
-    """True when mapping affiliation `variant` to `canonical` changes which organization
-    is meant. Either the canonical drops an identifying word ("Library & Researcher
-    Information Services" -> "Library", "Department of X, University of California" ->
-    "Department of X"), or it adds one ("Wroclaw University" -> "Wroclaw University of
-    Economics and Business", a different university). Stopwords, legal suffixes, place
-    names (`geo_tokens`), address words, numbers, single letters and acronyms in
-    parentheses do not count; plurals fold and abbreviations match ("Univ." ->
-    "University", "Dept." -> "Department"). Rewording that keeps every word ("University
-    of Heidelberg" -> "Heidelberg University") is not lossy. Same rule as
-    fairly.identity.changes_identity."""
-    paren = set()
-    for inner in re.findall(r"\(([^)]*)\)", f"{variant or ''} {canonical or ''}"):
-        paren.update(affiliation_tokens(inner))
-    return (_drops_identifying_word(variant, canonical, geo_tokens, paren)
-            or _drops_identifying_word(canonical, variant, geo_tokens, paren))
+def affiliation_merge_is_lossy(variant, canonical, rule=frozenset()) -> bool:
+    """True when mapping organization name `variant` to `canonical` changes which
+    organization is meant ("Library & Researcher Information Services" -> "Library",
+    "New Mexico State University" -> "University of New Mexico"). `rule` is an
+    IdentityRule (load_identity_rule), or a set of place words for fairly's rule alone.
+    Rewording that keeps the organization ("University of Heidelberg" -> "Heidelberg
+    University", "The University of Manchester" -> "University of Manchester") is not
+    lossy."""
+    if isinstance(rule, IdentityRule):
+        return rule.changes_identity(variant, canonical)
+    from fairly.identity import changes_identity
+    return changes_identity(variant, canonical, rule)
 
 
 def normalize_affiliation_names(record: dict) -> bool:

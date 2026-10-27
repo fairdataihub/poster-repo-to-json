@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "poster-to-json"
-version = "0.40.0"
+version = "0.41.0"
 description = "Full pipeline: scrape, QC, extract (via poster2json), and enrich scientific posters to schema-conformant JSON"
 readme = "README.md"
 license = "MIT"
@@ -27,6 +27,7 @@ classifiers = [
 dependencies = [
     "tqdm>=4.65.0",
     "jsonschema>=4.17.0",
+    "fair-ly-accurate>=0.5.0",
     "poster2json @ git+https://github.com/fairdataihub/poster2json.git",
     "poster-scraper @ git+https://github.com/fairdataihub/poster-repo-scraper.git",
     "poster-qc @ git+https://github.com/fairdataihub/poster-repo-qc.git",

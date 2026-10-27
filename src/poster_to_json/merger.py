@@ -201,7 +201,10 @@ class MetadataMerger:
         collapse_multidate_ranges(result)
         strip_invalid_dates(result)
         normalize_conference(result)
-        normalize_publisher(result)
+        # the converted deposit names its repository ("Zenodo"/"Figshare"); portal DOIs
+        # and Handles do not, so junk would otherwise survive without a fallback
+        normalize_publisher(result, (metadata.get("publisher") or {}).get("name")
+                            if isinstance(metadata.get("publisher"), dict) else metadata.get("publisher"))
         normalize_subjects(result)
         normalize_lumped_creators(result)
         normalize_creators(result)

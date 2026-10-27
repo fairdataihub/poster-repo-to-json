@@ -176,3 +176,14 @@ if __name__ == "__main__":
     for fn in fns:
         fn()
     print(f"\nAll {len(fns)} delta checks passed.")
+
+
+def test_junk_publisher_falls_back_for_a_portal_doi():
+    # an institutional Figshare portal DOI does not contain "figshare"; the deposit's
+    # repository still supplies the fallback
+    merger = MetadataMerger()
+    extraction = {"titles": [{"title": "T"}], "publisher": "https://example.org"}
+    metadata = {"publisher": {"name": "Figshare"},
+                "identifiers": [{"identifier": "10.60752/102376.27328098.v1", "identifierType": "DOI"}]}
+    out = merger.merge(extraction, metadata)
+    assert out["publisher"] == {"name": "Figshare"}

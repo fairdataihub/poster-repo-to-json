@@ -5,6 +5,77 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.0] - 2026-10-26
+
+An adversarial review of 0.40.0 found that the October 23 repair itself made wrong changes,
+and that the July synonym maps and geocoding damaged more fields than affiliations. All of it
+was re-run from the pre-October backups and delivered again.
+
+### Fixed
+- **The identity rule now comes from fair-ly-accurate 0.5.0, plus the ROR names.**
+  `field_normalize.IdentityRule` (`load_identity_rule`) replaces the copy of the rule in this
+  repo. The old rule treated every ROR place word as droppable, and ROR place words included
+  "Harvard", "Stanford", "National" and "State", so it let "Harvard University" stand for
+  "Stanford University" and "Ohio State" for "Iowa State". Two exact ROR names of different
+  organizations now always differ ("Washington University" vs "University of Washington").
+- **Affiliation restore uses the pre-merge snapshot as evidence.** 0.40.0 restored any
+  affiliation equal to a lossy canonical from the creator's sources, also in the 2025 corpus,
+  where the map was never applied, and could take a co-author's wording: it wrote
+  "Wroclaw University of Environmental and Life Sciences" over "Wroclaw University of
+  Economics and Business" and "Mayo Clinic in Florida" over "Mayo Clinic Libraries,
+  Rochester". `restore_lossy_affiliation_merges.py` now needs `--snapshot-dir`: an affiliation
+  is renamed back only when the snapshot shows the creator's own pre-merge wording, the rename
+  changes the organization, and no source has the current name. The restored entry takes the
+  snapshot entry's ROR id; another id stays only when the restored name is one of that ROR
+  record's names. Re-run from the pre-October backups: 11,217 affiliations restored in 5,538 pre-2025 records (10,324 paired through the map, 893 by position in an unchanged list); 8,792 harmless renames kept; 486 restored entries took their snapshot ROR id.
+- **DataCite people are matched one to one** (`backfill_datacite_ror_affiliations.py`): a
+  local "Smith, J." no longer takes both "Smith, John"'s and "Smith, Jane"'s affiliations.
+  ROR ids in any spelling are normalized; a person never gets the same id twice; an inactive id
+  is replaced by its single active successor; contributors are covered; every skip is counted;
+  404s are re-asked after 30 days; requests stay under 10 per second. Re-run from the pre-October backups: 15,372 ROR affiliations added or identified in 5,921 records (6,859 pre-2025, 8,513 in 2025); 274 ambiguous people skipped. Multi-word surnames the Figshare converter flipped ("Trnka, Anika Correll" for "Correll Trnka, Anika") and authors listed twice now match.
+- **Funder merges that named another funder are undone** (`restore_lossy_funder_merges.py`):
+  "National Research Fund" had become "U.S. National Science Foundation", "Genome Canada ..."
+  "Canadian Institutes of Health Research". Each funding list is compared with the funding
+  the deposit registered with DataCite (Zenodo) or the snapshot (Figshare). 452 funder names restored in 427 pre-2025 records (the funder map was applied to pre-2025 only).
+- **Publisher merges that named another organization are undone, and a Figshare poster
+  without a printed publisher names its repository's registered publisher**
+  (`fix_publishers.py`): "Figshare" becomes "UL Research Institutes" on ULRI's portal. The
+  merge now passes the deposit's repository to the publisher fallback, so a portal DOI or a
+  Handle no longer keeps a junk publisher. 3,886 pre-2025 publishers restored; 415 Figshare records (235 pre-2025, 180 in 2025) now name their registered publisher.
+- **Identifiers must name their own text's organization** (`audit_identifiers.py --fix`): a ROR
+  or Crossref Funder id whose organization is not the one its name means (older fuzzy matches,
+  merges that renamed text but kept the id: "University College London" with the University
+  of London's id) is replaced by the exact ROR match of the name or removed. A placeholder
+  funder name ("Unknown Funder") with a resolvable id takes the ROR display name. Affiliation ids: 60 removed, 54 replaced by the exact match, 10 duplicate entries a removal left behind merged; 4 placeholder funder names named. With `--cache-dir`, ids the record's DOI registered with DataCite (and the successors of retired ones) are never changed: 70 affiliation ids and 45 funder ids whose names differ from their current ROR names (renamed organizations such as "St George's, University of London" in City St George's) are kept.
+- **Conference locations are geocoded only when verified**
+  (`conference_location_geocode.py`, fair-ly-accurate `verify_place`): the place must be a
+  place (or a venue in a city the text names), named in the text, in any country or US state
+  the text names, and not a bare name another country shares ("Cambridge"). The first version
+  took Nominatim's guess as is: "Conference Location" became "Nizhniy Arkhyz, Russia", "CERN"
+  "Chern, Russia", "Ithaca, NY, U.S.A." "Sydney, Australia", and a city without a city-level
+  answer its region ("Pisa, Italy" -> "Tuscany, Italy"). `--repair` resets each record from
+  its own source text; poster template text ("Conference Location") is removed. 2,649 distinct location strings verified (13,776 posters); 1,631 records repaired (1,351 pre-2025, 280 in 2025), 29 template locations removed.
+- **The subject surface merge keeps acronyms and -ss words apart**
+  (`build_subject_surface_map.py`): its plural stem had folded "NGSS" into "NGS", "TES" into
+  "TESS", "CDS" into "CDSS" and "mas" into "mass"; `--repair-corpus` undoes them. 111 subjects restored in 107 records.
+- `restore_lossy_funder_merges.py` and the affiliation restore never put back a junk
+  wording a later cleanup removed on purpose ("1", "n/a").
+- Source lookups list the extraction directory once (`corpus_index.py`); a glob per record
+  made a corpus pass take hours on a busy disk.
+
+### Changed
+- Requires fair-ly-accurate 0.5.0 or later (`field_normalize.IdentityRule`,
+  `conference_location_geocode.py`).
+
+### Delivered
+Re-run from the pre-2026-10-23 backups (`merged.bak-20261023-affil`), in this order:
+affiliation restore, funder restore, publisher restore, identifier repair, subject repair,
+DataCite ROR affiliations, registrant publishers, verified geocoding. Every repair was
+checked idempotent, and a schema check found no record with new errors. Synced to
+`poster_index_19860101-20241231/merged` (6,990 files) and
+`poster_index_20250101-20251231/merged` (1,508 files) on 2026-10-26, no deletions; the
+previous corpus is kept as `merged.bak-20261026`. This replaces the 0.40.0 delivery.
+
 ## [0.40.0] - 2026-10-23
 
 ### Fixed
