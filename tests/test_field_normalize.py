@@ -906,3 +906,20 @@ def test_strip_title_control_chars():
     clean = {"titles": [{"title": "Lista de los escarabajos Passalidae del Perú"}]}
     assert strip_title_control_chars(clean) is False
     assert clean["titles"][0]["title"] == "Lista de los escarabajos Passalidae del Perú"
+
+
+def test_dedup_affiliations_keeps_the_entry_with_the_id_at_the_first_place():
+    from poster_to_json.field_normalize import dedup_affiliations
+    ror = {"name": "Yamagata University", "affiliationIdentifier": "https://ror.org/00xy44n04",
+           "affiliationIdentifierScheme": "ROR"}
+    out, n = dedup_affiliations([{"name": "yamagata  university"}, {"name": "Tohoku University"}, ror])
+    assert (out, n) == ([ror, {"name": "Tohoku University"}], 1)
+    # identical entries without ids collapse; the same id in another spelling counts as the same
+    out, n = dedup_affiliations([{"name": "X Institute"}, {"name": "X Institute"}])
+    assert n == 1
+    out, n = dedup_affiliations([ror, {**ror, "affiliationIdentifier": "00XY44N04"}])
+    assert n == 1
+    # two different ids under one name stay apart, and so do different names
+    other = {"name": "Yamagata University", "affiliationIdentifier": "https://ror.org/0aaaaaa11"}
+    assert dedup_affiliations([ror, other]) == ([ror, other], 0)
+    assert dedup_affiliations([{"name": "Universitat de València"}, {"name": "Universitat de Valencia"}])[1] == 0

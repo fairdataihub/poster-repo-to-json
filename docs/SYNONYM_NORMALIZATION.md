@@ -319,7 +319,9 @@ affiliations, publishers and funders.
 - `audit_identifiers.py` checks that every ROR / Crossref Funder id names its own text's
   organization; `--fix` replaces a mismatched id with the exact ROR match of the name, or removes
   it. With `--cache-dir` an id the record's DOI registered with DataCite (or the successor of a
-  retired one) is never changed, so a renamed organization keeps its registrant id.
+  retired one) is never changed, so a renamed organization keeps its registrant id. `--fix`
+  also merges one institution listed twice for one person (same words, case and spacing
+  aside) into the entry that carries the id. Run it once more at the end of the chain.
 
 Order for a corpus the July 2026 maps rewrote (each step idempotent): restore affiliations,
 restore funders, restore publishers (`fix_publishers.py --extractions-dir`), repair ids,

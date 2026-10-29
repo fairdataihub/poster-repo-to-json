@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.1] - 2026-10-29
+
+### Fixed
+- **One institution listed twice for one person is merged** (`field_normalize.dedup_affiliations`,
+  used by `audit_identifiers.py --fix`). An id attached to one of two copies of the same name
+  left "Yamagata University" once with its ROR id and once without. Entries with the same
+  words (case and spacing aside) now become the one that carries the id, at the first one's
+  place; entries whose ids differ stay apart. The fix pass used to merge only entries that
+  were identical, id included. Found by Dorian's audit of the delivered blob: 745 duplicates
+  in 458 pre-2025 records (44 in 17 Figshare records, 701 in 441 Zenodo records). All of them
+  were already there before 0.40.0 (34 already in the July snapshot, the rest added between
+  then and October 23); none in the 2025 corpus.
+
 ## [0.41.0] - 2026-10-26
 
 An adversarial review of 0.40.0 found that the October 23 repair itself made wrong changes,

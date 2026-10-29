@@ -107,3 +107,17 @@ def test_registrant_ids_are_never_changed(tmp_path):
     assert mod.audit_record(d, ror, stats, [], "x", fix=True, registered={NMSU}) == 0
     assert d["creators"][0]["affiliation"] == [_aff("University of New Mexico", NMSU)]
     assert stats["aff_registrant_id_kept"] == 1
+
+
+def test_fix_merges_one_institution_listed_with_and_without_its_ror(tmp_path):
+    mod, ror = _mod(), _ror(tmp_path)
+    d = {"creators": [{"name": "Doe, Jane", "affiliation": [{"name": "New Mexico State University"},
+                                                            {"name": "Other Place"},
+                                                            _aff("New Mexico State University", NMSU)]}]}
+    stats = Counter()
+    mod.audit_record(d, ror, stats, [], "x", fix=True)
+    assert d["creators"][0]["affiliation"] == [_aff("New Mexico State University", NMSU), {"name": "Other Place"}]
+    assert stats["aff_duplicates_removed"] == 1
+    stats = Counter()
+    mod.audit_record(d, ror, stats, [], "x", fix=True)
+    assert stats["aff_duplicates_removed"] == 0

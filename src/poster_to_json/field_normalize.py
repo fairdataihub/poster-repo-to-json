@@ -1668,6 +1668,43 @@ def normalize_affiliation_names(record: dict) -> bool:
     return False
 
 
+def _affiliation_id_key(a) -> str:
+    """An affiliation's identifier in one spelling: the bare ROR id for any form of a ROR
+    URL or id, otherwise the stripped, lowercased value ("" when there is none)."""
+    if not isinstance(a, dict):
+        return ""
+    v = str(a.get("affiliationIdentifier") or "").strip().lower().rstrip("/")
+    m = re.match(r"^(?:(?:https?://)?(?:www\.)?ror\.org/)?([0-9a-z]{9})$", v)
+    return m.group(1) if m else v
+
+
+def dedup_affiliations(affs):
+    """Merge the entries of one person's affiliation list that name the same institution in
+    the same words, case and spacing aside: "Yamagata University" listed twice, once with
+    its ROR id and once without, becomes one entry, the one with the id, at the place of
+    the first. Entries whose ids differ stay apart. Returns (new list, number removed)."""
+    if not isinstance(affs, list):
+        return affs, 0
+    out, at = [], {}
+    for a in affs:
+        name = a.get("name") if isinstance(a, dict) else a
+        if not isinstance(name, str) or not name.strip():
+            out.append(a)
+            continue
+        key = " ".join(unicodedata.normalize("NFKC", name).casefold().split())
+        if key in at:
+            i = at[key]
+            new_id, kept_id = _affiliation_id_key(a), _affiliation_id_key(out[i])
+            if not new_id or not kept_id or new_id == kept_id:
+                if new_id and not kept_id:
+                    out[i] = a
+                continue
+        else:
+            at[key] = len(out)
+        out.append(a)
+    return out, len(affs) - len(out)
+
+
 _TITLE_SECTION_HEADERS = frozenset({
     "aim", "aims", "introduction", "background", "methods", "method", "results",
     "conclusion", "conclusions", "discussion", "objective", "objectives",

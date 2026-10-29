@@ -20,8 +20,10 @@ The same ROR id twice on one person is reported too.
 With --fix (run after restore_lossy_affiliation_merges.py, which puts back names that a
 merge renamed, and before backfill_datacite_ror_affiliations.py), a mismatched id is
 replaced by the id of the one active ROR organization the name exactly names, and is
-otherwise removed with its scheme fields; the name always stays. Identical affiliation
-entries a removal leaves behind are merged into one. With --cache-dir, an id the record's
+otherwise removed with its scheme fields; the name always stays. Entries of one person
+that name the same institution in the same words (case and spacing aside) are merged into
+one that keeps the id: one institution listed once with its ROR id and once without, or
+two entries a removal leaves identical (field_normalize.dedup_affiliations). With --cache-dir, an id the record's
 DOI registered with DataCite is never changed: the repository asserted it, and a renamed
 organization ("St George's, University of London" in City St George's) keeps its id. A placeholder funder name
 ("Unknown Funder") with a resolvable id takes the id's ROR display name. Idempotent.
@@ -41,7 +43,7 @@ from pathlib import Path
 _SRC = Path(__file__).resolve().parents[2] / "src"
 if _SRC.exists():
     sys.path.insert(0, str(_SRC))
-from poster_to_json.field_normalize import IdentityRule, _ror_name_key  # noqa: E402
+from poster_to_json.field_normalize import IdentityRule, _ror_name_key, dedup_affiliations  # noqa: E402
 
 _ROR_RE = re.compile(r"^(?:(?:https?://)?(?:www\.)?ror\.org/)?([0-9a-z]{9})$")
 _FUNDREF_RE = re.compile(r"10\.13039/(\d+)$")
@@ -195,14 +197,11 @@ def audit_record(d, ror, stats, rows, rec, fix=False, registered=frozenset()):
             stats["duplicate_id"] += len(dup)
             rows.extend((rec, "duplicate_id", c.get("name"), "", r, "") for r in dup)
         if fix and isinstance(c.get("affiliation"), list):
-            # removing a wrong id can leave two identical entries ("Institute for Genetics"
-            # twice, each with a different wrong id); keep one
-            uniq = []
-            for a in c["affiliation"]:
-                if a not in uniq:
-                    uniq.append(a)
-            if len(uniq) < len(c["affiliation"]):
-                stats["aff_duplicates_removed"] += len(c["affiliation"]) - len(uniq)
+            # one institution twice for one person: once with its ROR id and once without
+            # (an id was attached to one of two copies), or identical after a removal
+            uniq, n = dedup_affiliations(c["affiliation"])
+            if n:
+                stats["aff_duplicates_removed"] += n
                 c["affiliation"] = uniq
                 changed += 1
     for fr in d.get("fundingReferences") or []:
