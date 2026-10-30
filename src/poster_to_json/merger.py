@@ -33,13 +33,22 @@ from .field_normalize import (
     reconcile_publication_year, sanitize_conference_dates, strip_invalid_dates,
     normalize_name_identifiers, drop_invalid_orcids, drop_letterless_creator_fields,
     normalize_affiliation_in_name, normalize_affiliation_names, replace_bad_llm_title,
-    strip_title_html, strip_title_control_chars,
+    strip_title_html, strip_title_control_chars, normalize_title_entries, repair_text_from_deposit,
+    dedup_subjects, fix_url_affiliations,
     collapse_multidate_ranges, normalize_version, drop_junk_related_identifiers,
     drop_junk_descriptions, drop_junk_funding, clean_conference_junk,
     drop_junk_sections, drop_junk_captions, conform_to_schema,
 )
 from .license_policy import enforce_license
 from .reference_links import link_poster_references
+
+
+def _deposit_references(metadata):
+    """The deposit's own texts an extracted text can be checked against: its titles and
+    descriptions, HTML formatting removed."""
+    refs = [_first_deposit_title(metadata)]
+    refs += [d.get("description") for d in (metadata or {}).get("descriptions") or [] if isinstance(d, dict)]
+    return [re.sub(r"<[^>]+>", " ", r) for r in refs if isinstance(r, str) and r.strip()]
 
 
 def _first_deposit_title(metadata):
@@ -194,9 +203,12 @@ class MetadataMerger:
                 result["relatedIdentifiers"] = self._merge_related(ext_val, meta_val)
 
         self._strip_metadata_placeholders(result)
+        normalize_title_entries(result)
         replace_bad_llm_title(result, _first_deposit_title(metadata))
         strip_title_html(result)
         strip_title_control_chars(result)
+        # the deposit's spelling of the same text (accents, undecodable ligatures, spaces)
+        repair_text_from_deposit(result, _deposit_references(metadata))
         normalize_record_dates(result)
         collapse_multidate_ranges(result)
         strip_invalid_dates(result)
@@ -206,11 +218,13 @@ class MetadataMerger:
         normalize_publisher(result, (metadata.get("publisher") or {}).get("name")
                             if isinstance(metadata.get("publisher"), dict) else metadata.get("publisher"))
         normalize_subjects(result)
+        dedup_subjects(result)
         normalize_lumped_creators(result)
         normalize_creators(result)
         normalize_affiliation_in_name(result)
         drop_letterless_creator_fields(result)
         normalize_affiliation_names(result)
+        fix_url_affiliations(result)
         dedup_creators(result)
         normalize_formats(result)
         normalize_version(result)

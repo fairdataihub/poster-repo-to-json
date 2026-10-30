@@ -923,3 +923,109 @@ def test_dedup_affiliations_keeps_the_entry_with_the_id_at_the_first_place():
     other = {"name": "Yamagata University", "affiliationIdentifier": "https://ror.org/0aaaaaa11"}
     assert dedup_affiliations([ror, other]) == ([ror, other], 0)
     assert dedup_affiliations([{"name": "Universitat de València"}, {"name": "Universitat de Valencia"}])[1] == 0
+
+
+def test_creator_names_in_any_script_are_real():
+    from poster_to_json.field_normalize import creator_name_is_junk, normalize_creators
+    for name in ("\u674e, \u6770", "\u0420\u043e\u043f\u043e\u0432\u0430", "\u91ce\u4e2d, \u96c4\u53f8", "Ng, Li"):
+        assert not creator_name_is_junk(name)
+    for name in ("M., A", "D", "N/A"):
+        assert creator_name_is_junk(name)
+    # a work-package team is dropped beside real authors, kept as the only creator
+    r = {"creators": [{"name": "WP3 Dissemination"}, {"name": "Doe, Jane"}]}
+    normalize_creators(r)
+    assert [c["name"] for c in r["creators"]] == ["Doe, Jane"]
+    r = {"creators": [{"name": "WP3 Dissemination, communication and outreach"}]}
+    normalize_creators(r)
+    assert r["creators"] == [{"name": "WP3 Dissemination, communication and outreach", "nameType": "Organizational"}]
+
+
+def test_empty_or_template_title_takes_the_deposit_title():
+    from poster_to_json.field_normalize import normalize_title_entries, replace_bad_llm_title
+    dep = "SPIRou and the search for brown dwarfs (and exoplanets)"
+    for titles in (None, [], [{"title": "MAIN POSTER TITLE"}], [{"title": ""}]):
+        r = {} if titles is None else {"titles": titles}
+        assert replace_bad_llm_title(r, dep)
+        assert r["titles"][0]["title"] == dep
+    r = {"titles": [{"title": "A real extracted title about dwarfs"}]}
+    assert not replace_bad_llm_title(r, dep)
+    r = {"titles": ["The Arabidopsis lyrata genome"]}
+    assert normalize_title_entries(r) and r["titles"] == [{"title": "The Arabidopsis lyrata genome"}]
+
+
+def test_repair_from_reference_fixes_damaged_words_only():
+    from poster_to_json.field_normalize import repair_from_reference as fix, repair_title_spacing
+    F = "\ufffd"
+    assert fix(f"Non-alcoholic fa{F}y liver disease from an omics approach",
+               ["Non-alcoholic fatty liver disease from an omics approach"]) ==         "Non-alcoholic fatty liver disease from an omics approach"
+    # lost accents come back in the text's own case; its punctuation stays
+    assert fix("Analise odontologica, em especial 'flor de lis', para identificacao forense",
+               ['Análise Odontológica, em Especial "Flor de Lis", para Identificação Forense: Relato']) ==         "Análise odontológica, em especial 'flor de lis', para identificação forense"
+    # capitals scrambled in two or more words: the whole reference
+    assert fix("AnalisE EpidemiolÓgica Das Fraturas Na Grande SÃo Paulo",
+               ["Análise epidemiológica das fraturas na Grande São Paulo"]) ==         "Análise epidemiológica das fraturas na Grande São Paulo"
+    # the matching words of a longer reference; words extracted twice read once
+    assert fix(f"Life-cycles synchronisa{F}on ma{F}ers in maize",
+               ["Maize resistance: life-cycles synchronisation matters in maize.pdf"]) ==         "Life-cycles synchronisation matters in maize"
+    assert fix("VIAS VIAS AEREAS AEREAS POR POR CORPO CORPO (OVACE)", ["VIAS AÉREAS POR CORPO (OVACE)"]) ==         "VIAS AÉREAS POR CORPO (OVACE)"
+    # clean text is never restyled after the deposit
+    for text, ref in (("SCHOLARLY PUBLISHING IN THE EUROPEAN RESEARCH AREA (ERA)",
+                       "Scholarly Publishing in the European Research Area (ERA)"),
+                      ("King's College London", "King’s College London"),
+                      ("healthcare workers", "health care workers"),
+                      ("Hamburg, Germany", "held in Hamburg (Germany) 2023"),
+                      ("DiVaM 2018 Patrimonio que futuro?", "Do Saber ao Criar: Villa de Milreu")):
+        assert fix(text, [ref]) is None
+    assert repair_title_spacing("PSICOSSOCIAIS NAATENCAO INTEGRAL", "PSICOSSOCIAIS NA ATENCAO INTEGRAL") ==         "PSICOSSOCIAIS NA ATENCAO INTEGRAL"
+    assert repair_title_spacing("Same title", "Same title") is None
+
+
+def test_repair_ligatures_fills_known_words_in_their_case():
+    from poster_to_json.field_normalize import repair_ligatures
+    F = "\ufffd"
+    vocab = {"federation": 5, "meeting": 9, "cognitive": 4}
+    assert repair_ligatures(f"Federa{F}on University", vocab) == "Federation University"
+    assert repair_ligatures(f"Annual Mee{F}ng of the Cogni{F}ve Society", vocab) == "Annual Meeting of the Cognitive Society"
+    assert repair_ligatures(f"ANNUAL MEE{F}NG", vocab) == "ANNUAL MEETING"
+    assert repair_ligatures(f"UMR Gene{F}", vocab) == f"UMR Gene{F}"
+    assert repair_ligatures(f"xx {F} mm ll {F}", {"th": 99}) == f"xx {F} mm ll {F}"   # no word around it
+
+
+def test_dedup_subjects_ignores_case_and_spacing():
+    from poster_to_json.field_normalize import dedup_subjects
+    r = {"subjects": [{"subject": "Computational biology"}, {"subject": "Plant pathology"},
+                      {"subject": "Computational  Biology", "subjectScheme": "FOR"}]}
+    assert dedup_subjects(r)
+    assert r["subjects"] == [{"subject": "Computational  Biology", "subjectScheme": "FOR"}, {"subject": "Plant pathology"}]
+    assert not dedup_subjects(r)
+
+
+def test_fix_url_affiliations():
+    from poster_to_json.field_normalize import fix_url_affiliations
+    names = {"04z8jg394": "GFZ Helmholtz Centre for Geosciences"}
+    gfz = {"name": "GFZ Helmholtz Centre for Geosciences", "affiliationIdentifier": "https://ror.org/04z8jg394",
+           "affiliationIdentifierScheme": "ROR", "schemeURI": "https://ror.org"}
+    orcid = {"nameIdentifier": "https://orcid.org/0000-0002-0537-8382", "nameIdentifierScheme": "ORCID",
+             "schemeURI": "https://orcid.org"}
+    r = {"creators": [
+        {"name": "Poersch, Andrea", "affiliation": [{"name": "https://ror.org/04z8jg394"}, gfz]},
+        {"name": "Trizna, Michael", "nameIdentifiers": [orcid, orcid],
+         "affiliation": [{"name": "https://orcid.org/0000-0002-0537-8382"}, {"name": "Smithsonian Institution"}]},
+        {"name": "Wiggins, Gavin", "affiliation": [{"name": "https://gavinw.me"}]},
+        {"name": "Staatsbibliothek zu Berlin", "affiliation": [{"name": "http://d-nb.info/gnd/5036103-X"}]}]}
+    assert fix_url_affiliations(r, names.get)
+    a, b, c, d = r["creators"]
+    assert a["affiliation"] == [gfz]
+    assert b["nameIdentifiers"] == [orcid] and b["affiliation"] == [{"name": "Smithsonian Institution"}]
+    assert "affiliation" not in c
+    assert "affiliation" not in d and d["nameIdentifiers"][0]["nameIdentifierScheme"] == "GND"
+    assert not fix_url_affiliations(r, names.get)
+
+
+def test_a_funder_named_as_the_poster_title_is_dropped():
+    from poster_to_json.field_normalize import drop_junk_funding
+    r = {"titles": [{"title": "Dispositivos da Rede de Aten\u00e7\u00e3o Psicossocial: Hospital Psiqui\u00e1trico"}],
+         "fundingReferences": [{"funderName": "DISPOSITIVOS DA REDE DE ATEN\u00c7\u00c3O PSICOSSOCIAL: HOSPITAL PSIQUI\u00c1TRICO"},
+                               {"funderName": "FAPESP"}]}
+    assert drop_junk_funding(r)
+    assert r["fundingReferences"] == [{"funderName": "FAPESP"}]

@@ -5,6 +5,60 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.0] - 2026-10-30
+
+Fixes for the issues of Dorian's corpus metadata audit (2026-10-30), each by a general
+rule, repaired in the delivered corpus with `repair_from_deposit.py` and
+`fix_publishers.py`. The text repairs live in fair-ly-accurate 0.6.0 (`fairly.repair`).
+
+### Fixed
+- **Creators with names in non-Latin scripts were dropped.** `creator_name_is_junk` required
+  two consecutive Latin letters, so "李, 杰", "Попова" or "野中, 雄司" counted as junk and
+  records were left with no creators. A real name is now a word in any script
+  (`fairly.repair.has_word`); bare initials ("M., A") still are not. A work-package team
+  ("WP3 Dissemination, communication and outreach") that is a deposit's only creator stays,
+  as an organization. 17 records got their creators back; one whose deposit names only "N/A" stays without.
+- **Empty and template titles take the deposit title.** An extraction title that is a template
+  placeholder ("Main Poster Title", "Poster Title", "Unknown") was dropped with no fallback;
+  `replace_bad_llm_title` now fills an empty, missing or placeholder title from a reasonable
+  deposit title. A title stored as a bare string becomes `{"title": ...}`
+  (`normalize_title_entries`). 11 empty or template titles filled; 1 bare-string title fixed.
+- **Text damaged by PDF extraction is repaired from the deposit.** Extracted titles, subjects,
+  publishers, conference names, funders and affiliation names had lost accents ("Analise",
+  "Baden-Wurttemberg") or carried U+FFFD where the PDF font drew a ligature (U+FFFD for "ti" in "estimation",
+  "Federation University"). When the deposit's title or description holds the same words,
+  only the damaged words take the deposit's letters, in the extraction's own case
+  (`repair_from_reference`); clean text is never restyled. Any U+FFFD left, in any text, is
+  filled with the ligature letters that make a word of the deposits' own vocabulary
+  (`repair_ligatures`). A title that lost a space the deposit has takes the deposit's spacing.
+  2,662 values repaired in about 1,600 records, Dorian's flagged titles, publishers, conference names, subjects and funders among them.
+- **Affiliations whose name is a URL** (`fix_url_affiliations`): a ROR URL becomes the
+  affiliation it identifies, named by ROR (the depositor's URL wins over another for the same
+  person); an ORCID or GND URL is the person's own id and moves to `nameIdentifiers`; a
+  homepage or project site is dropped. Repeated `nameIdentifiers` are merged. 174 records, Dorian's 36 URL entries among them.
+- **Repeated subjects** that differ in case or spacing ("Computational biology",
+  "Computational  Biology") are merged (`dedup_subjects`). 6 records.
+- **A funder named as the poster's own title** is dropped (`drop_junk_funding`); a deposit's
+  own funding sentence is kept in the backfill (`acknowledgements=False`). 4 funders dropped (a poster title, letterless numbers).
+- **A DOI with trailing punctuation** ("10.5194/egusphere-egu24-2538,") is trimmed. A Zenodo
+  record with no DOI gets `10.5281/zenodo.<id>` only when DataCite has it registered for the
+  record: the 11 records Dorian listed (2014 uploads) have none (doi.org 404), so none was added.
+
+### Changed
+- **A record on an institutional Figshare portal takes the publisher the portal registered
+  with DataCite** (`fix_publishers.py --cache-dir`), with its identifier when DataCite has one:
+  the portal is the publisher of record ("UL Research Institutes", "Loughborough University").
+  Records on figshare.com and Zenodo keep the poster's own publisher. 2,219 records (1,660 pre-2025, 559 in 2025), the 2 ULRI records among them.
+- Requires fair-ly-accurate 0.6.0 or later (`fairly.repair`).
+
+### Not changed, by evidence
+- 370 Zenodo records list an external DOI first: the depositor registered an existing DOI with
+  Zenodo, which shows it as the record's DOI. Correct as is.
+- Many "encoding" flags were clean text: uppercase Portuguese ("EDUCAÇÃO") and curly
+  apostrophes are valid NFC.
+- "Library & Researcher Information Services" on 27063577 is printed on the poster, so the
+  affiliation stays.
+
 ## [0.41.1] - 2026-10-29
 
 ### Fixed

@@ -326,8 +326,9 @@ affiliations, publishers and funders.
 Order for a corpus the July 2026 maps rewrote (each step idempotent): restore affiliations,
 restore funders, restore publishers (`fix_publishers.py --extractions-dir`), repair ids,
 repair subjects (`build_subject_surface_map.py --repair-corpus`), DataCite ROR affiliations,
-registrant publishers (`fix_publishers.py --cache-dir`), conference locations
-(`conference_location_geocode.py --repair`).
+registrant publishers (`fix_publishers.py --cache-dir`; institutional portals take the
+publisher they registered), conference locations (`conference_location_geocode.py --repair`),
+repairs against the deposit (`repair_from_deposit.py`), and a last `audit_identifiers.py --fix`.
 
 The rule trades some facet consolidation for correctness: an affiliation keeps the author's
 wording rather than a name that may mean something else.

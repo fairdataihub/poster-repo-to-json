@@ -412,6 +412,39 @@ def split_subject(value: str):
     return out
 
 
+def _subject_key(v) -> str:
+    return " ".join(unicodedata.normalize("NFKC", str(v)).casefold().split())
+
+
+def dedup_subjects(record: dict) -> bool:
+    """Drop a subject that repeats an earlier one, case and spacing aside ("Computational
+    biology" and "Computational  Biology"); a repeat that carries a scheme or URI takes the
+    earlier one's place. Nothing is split or renamed. Idempotent."""
+    subs = record.get("subjects")
+    if not isinstance(subs, list):
+        return False
+    out, at = [], {}
+    for s in subs:
+        v = s.get("subject") if isinstance(s, dict) else s
+        if not isinstance(v, str) or not v.strip():
+            out.append(s)
+            continue
+        k = _subject_key(v)
+        if k in at:
+            i = at[k]
+            if (isinstance(s, dict) and (s.get("subjectScheme") or s.get("valueURI") or s.get("valueUri"))
+                    and not (isinstance(out[i], dict) and (out[i].get("subjectScheme") or out[i].get("valueURI")
+                                                         or out[i].get("valueUri")))):
+                out[i] = s
+            continue
+        at[k] = len(out)
+        out.append(s)
+    if len(out) == len(subs):
+        return False
+    record["subjects"] = out
+    return True
+
+
 def normalize_subjects(record: dict) -> bool:
     """Split lumped keywords (header/comma/semicolon/2+ spaces/acronym-blob), drop junk
     (empty/placeholder/URL/email/letterless), and dedup."""
@@ -438,7 +471,7 @@ def normalize_subjects(record: dict) -> bool:
                     or _URL_RE.search(v) or _EMAIL_RE.search(v)):
                 changed = True
                 continue
-            key = v.lower()
+            key = _subject_key(v)
             if key in seen:
                 changed = True
                 continue
@@ -459,10 +492,23 @@ def normalize_subjects(record: dict) -> bool:
 _ORCID_RE = re.compile(r"\b\d{4}-\d{4}-\d{4}-\d{3}[\dxX]\b")
 
 
+def _has_name_token(n) -> bool:
+    """A real word in any script (fairly.repair.has_word): Latin "Ng", Cyrillic
+    "Попова", Devanagari, or two Han/Kana/Hangul characters ("李, 杰"); bare Latin
+    initials ("M., A", "D") hold none."""
+    from fairly.repair import has_word
+    return has_word(n)
+
+
+def _is_work_package_label(n) -> bool:
+    return bool(re.match(r"^\s*WP\s*\d", str(n), re.I)) or "work package" in str(n).lower()
+
+
 def creator_name_is_junk(name) -> bool:
     """A creator name that is clearly not a real author: placeholder, unfilled
-    template, conference/institution-as-author, url/email, an ORCID string, or a
-    name with no real (2+ letter) token (bare initials like "M., A" or "D")."""
+    template, conference/institution-as-author, url/email, an ORCID string, a project
+    work-package label, or a name with no real word in any script (bare initials like
+    "M., A" or "D"). Chinese, Japanese, Cyrillic or Devanagari names are real."""
     n = str(name).strip() if name is not None else ""
     if not n:
         return True
@@ -472,9 +518,9 @@ def creator_name_is_junk(name) -> bool:
         return True
     if re.fullmatch(r"et\s*\.?\s*al\.?", n, re.I):   # "et al" alone is not an author
         return True
-    if re.match(r"^\s*WP\s*\d", n, re.I) or "work package" in n.lower():
+    if _is_work_package_label(n):
         return True                                  # project work-package label
-    return not re.search(r"[A-Za-z]{2,}", n)
+    return not _has_name_token(n)
 
 
 _ORG_RE = re.compile(
@@ -501,7 +547,7 @@ def normalize_creators(record: dict) -> bool:
     cres = record.get("creators")
     if not isinstance(cres, list):
         return False
-    cleaned = []
+    cleaned, labels = [], []
     changed = False
     for c in cres:
         if not isinstance(c, dict):
@@ -511,6 +557,8 @@ def normalize_creators(record: dict) -> bool:
         n = str(nm).strip() if nm is not None else ""
         if creator_name_is_junk(nm):
             changed = True
+            if _is_work_package_label(n):
+                labels.append(c)   # kept below when it is the only creator
             continue
         cc = dict(c)
         if n != nm:
@@ -549,6 +597,10 @@ def normalize_creators(record: dict) -> bool:
                     cc.pop("affiliation", None)
                 changed = True
         cleaned.append(cc)
+    if not cleaned and labels:
+        # a work-package team is the deposit's only creator: an organizational author
+        cleaned = [{**c, "name": str(c["name"]).strip(), "nameType": c.get("nameType") or "Organizational"}
+                   for c in labels]
     if cleaned != cres:
         if cleaned:
             record["creators"] = cleaned
@@ -1668,6 +1720,100 @@ def normalize_affiliation_names(record: dict) -> bool:
     return False
 
 
+_URL_ONLY_RE = re.compile(r"^(?:https?://|www\.)\S+$", re.I)
+_ROR_URL_RE = re.compile(r"^(?:https?://)?(?:www\.)?ror\.org/([0-9a-z]{9})/?$", re.I)
+_ORCID_URL_RE = re.compile(r"^(?:https?://)?(?:www\.)?orcid\.org/(\d{4}-\d{4}-\d{4}-\d{3}[\dxX])/?$", re.I)
+_PERSON_ID_URLS = (   # identifiers of the creator itself, not of an affiliation
+    (re.compile(r"^https?://(?:www\.)?d-nb\.info/gnd/(\S+?)/?$", re.I), "GND", _GND_SCHEME_URI,
+     "https://d-nb.info/gnd/{}"),
+    (re.compile(r"^https?://(?:www\.)?isni\.org/isni/(\S+?)/?$", re.I), "ISNI", _ISNI_SCHEME_URI,
+     "https://isni.org/isni/{}"),
+)
+
+
+def _person_orcids(c):
+    out = set()
+    for ni in c.get("nameIdentifiers") or []:
+        if isinstance(ni, dict):
+            m = _ORCID_ID_RE.search(str(ni.get("nameIdentifier") or ""))
+            if m:
+                out.add(m.group(1).upper())
+    return out
+
+
+def fix_url_affiliations(record: dict, ror_name=None) -> bool:
+    """An affiliation whose name is only a URL is not an institution's name. A ROR URL
+    becomes the affiliation it identifies (the id, named by `ror_name(id)`, the ROR
+    display name; left alone when no name lookup is given). An ORCID URL is the person's
+    own id: it moves to their nameIdentifiers when they have no ORCID and its checksum
+    holds, and is dropped otherwise. A GND or ISNI URL is the creator's own id and moves
+    to nameIdentifiers likewise. Any other URL (a homepage, a project site) is dropped.
+    Repeated nameIdentifiers are merged. Then duplicate affiliations are merged
+    (dedup_affiliations). Idempotent."""
+    changed = False
+    for role in ("creators", "contributors"):
+        for c in record.get(role) or []:
+            if not isinstance(c, dict):
+                continue
+            nids = c.get("nameIdentifiers") if isinstance(c.get("nameIdentifiers"), list) else []
+            uniq = []
+            for ni in nids:
+                if ni not in uniq:
+                    uniq.append(ni)
+            if len(uniq) != len(nids):
+                c["nameIdentifiers"] = uniq
+                changed = True
+            affs = c.get("affiliation")
+            if not isinstance(affs, list):
+                continue
+            new = []
+            for a in affs:
+                name = a.get("name") if isinstance(a, dict) else a
+                if not isinstance(name, str) or not _URL_ONLY_RE.match(name.strip()):
+                    new.append(a)
+                    continue
+                url = name.strip()
+                m = _ROR_URL_RE.match(url)
+                if m:
+                    rid = m.group(1).lower()
+                    display = ror_name(rid) if ror_name else None
+                    if not display:
+                        new.append(a)
+                        continue
+                    new.append({"name": display, "affiliationIdentifier": f"https://ror.org/{rid}",
+                                "affiliationIdentifierScheme": "ROR", "schemeURI": _ROR_SCHEME_URI})
+                    changed = True
+                    continue
+                changed = True
+                m = _ORCID_URL_RE.match(url)
+                if m:
+                    orcid = m.group(1).upper()
+                    if not _person_orcids(c) and _orcid_checksum_ok(orcid):
+                        c.setdefault("nameIdentifiers", [])
+                        c["nameIdentifiers"].append({"nameIdentifier": f"https://orcid.org/{orcid}",
+                                                     "nameIdentifierScheme": "ORCID",
+                                                     "schemeURI": "https://orcid.org"})
+                    continue
+                for rx, scheme, scheme_uri, fmt in _PERSON_ID_URLS:
+                    m = rx.match(url)
+                    if m:
+                        have = {str(ni.get("nameIdentifierScheme")).upper() for ni in c.get("nameIdentifiers") or []
+                                if isinstance(ni, dict)}
+                        if scheme not in have:
+                            c.setdefault("nameIdentifiers", [])
+                            c["nameIdentifiers"].append({"nameIdentifier": fmt.format(m.group(1)),
+                                                         "nameIdentifierScheme": scheme, "schemeURI": scheme_uri})
+                        break
+            new, _ = dedup_affiliations(new)
+            if new != affs:
+                changed = True
+                if new:
+                    c["affiliation"] = new
+                else:
+                    c.pop("affiliation", None)
+    return changed
+
+
 def _affiliation_id_key(a) -> str:
     """An affiliation's identifier in one spelling: the bare ROR id for any form of a ROR
     URL or id, otherwise the stripped, lowercased value ("" when there is none)."""
@@ -1703,6 +1849,154 @@ def dedup_affiliations(affs):
             at[key] = len(out)
         out.append(a)
     return out, len(affs) - len(out)
+
+
+def normalize_title_entries(record: dict) -> bool:
+    """A title given as a bare string becomes {"title": ...}, the schema's shape (a
+    reader that looks up titles[0].title sees no title otherwise). Idempotent."""
+    titles = record.get("titles")
+    if isinstance(titles, str):
+        titles = [titles]
+        record["titles"] = titles
+    if not isinstance(titles, list):
+        return False
+    changed = False
+    for i, t in enumerate(titles):
+        if isinstance(t, str):
+            titles[i] = {"title": t}
+            changed = True
+    return changed
+
+
+_FFFD = "\ufffd"
+
+
+def _fold_with_map(s):
+    """The letters and digits of `s`, accents removed and case-folded, and for each the
+    index in `s` it came from. U+FFFD (a glyph the PDF could not decode, usually a
+    ligature such as "ti" or "tt") is kept as itself."""
+    out, idx = [], []
+    for i, ch in enumerate(str(s)):
+        if ch == _FFFD:
+            out.append(ch)
+            idx.append(i)
+            continue
+        for c in unicodedata.normalize("NFKD", ch):
+            if unicodedata.combining(c):
+                continue
+            for cc in c.casefold():
+                if cc.isalnum():
+                    out.append(cc)
+                    idx.append(i)
+    return "".join(out), idx
+
+
+def repair_from_reference(text, references, min_letters=12):
+    """Repair an extracted text with the deposit's own words (fairly.repair.
+    repair_from_reference): a word that lost its accents takes the deposit's ("Analise"
+    -> "Análise"), a word with an undecodable ligature (U+FFFD) takes the deposit's
+    letters, each in the text's own case; a text extracted twice reads once; a whole
+    text with scrambled capitals ("AnalisE ... SÃo Paulo") takes the deposit's. Clean
+    text is never restyled. Returns the repaired text or None."""
+    from fairly.repair import repair_from_reference as _repair
+    return _repair(text, references, min_letters)
+
+
+def repair_title_spacing(title, deposit_title):
+    """The deposit's title when the title differs from it in spacing alone (a lost space,
+    "NAATENÇÃO" for "NA ATENÇÃO"); else None."""
+    if not isinstance(title, str) or not isinstance(deposit_title, str):
+        return None
+    dep = " ".join(deposit_title.split())
+    if (title != dep and re.sub(r"\s+", "", title) == re.sub(r"\s+", "", dep)
+            and dep.count(" ") > title.count(" ")):      # only spaces the title lost
+        return dep
+    return None
+
+
+def repair_ligatures(text, vocab):
+    """Fill each U+FFFD inside a word with the ligature letters that make a known word
+    of `vocab` (fairly.repair.repair_ligatures): "Federa\ufffdon" -> "Federation". Words
+    no fill makes known, glyphs in formulas and words split across a line keep it."""
+    from fairly.repair import repair_ligatures as _repair
+    return _repair(text, vocab)
+
+
+def _short_text_slots(record):
+    """(object, key) of the short texts an extraction fills: titles, publisher, conference
+    name/acronym/location, subjects, funder names, award titles, affiliation names."""
+    for t in record.get("titles") or []:
+        if isinstance(t, dict):
+            yield t, "title"
+    if isinstance(record.get("publisher"), dict):
+        yield record["publisher"], "name"
+    if isinstance(record.get("conference"), dict):
+        for k in ("conferenceName", "conferenceAcronym", "conferenceLocation"):
+            yield record["conference"], k
+    for x in record.get("subjects") or []:
+        if isinstance(x, dict):
+            yield x, "subject"
+    for fr in record.get("fundingReferences") or []:
+        if isinstance(fr, dict):
+            yield fr, "funderName"
+            yield fr, "awardTitle"
+    for role in ("creators", "contributors"):
+        for c in record.get(role) or []:
+            for a in (c.get("affiliation") if isinstance(c, dict) else None) or []:
+                if isinstance(a, dict):
+                    yield a, "name"
+
+
+def _long_text_slots(record):
+    """(object, key) of the texts only a vocabulary repairs: descriptions, poster text,
+    captions, and creator names (their spelling is the deposit's to give, so no
+    reference repair)."""
+    for role in ("creators", "contributors"):
+        for c in record.get(role) or []:
+            if isinstance(c, dict):
+                for k in ("name", "givenName", "familyName"):
+                    yield c, k
+    for d in record.get("descriptions") or []:
+        if isinstance(d, dict):
+            yield d, "description"
+    content = record.get("content")
+    if isinstance(content, dict):
+        for sec in content.get("sections") or []:
+            if isinstance(sec, dict):
+                yield sec, "sectionTitle"
+                yield sec, "sectionContent"
+        yield content, "unstructuredContent"
+    for k in ("tableCaptions", "imageCaptions"):
+        for cap in record.get(k) or []:
+            if isinstance(cap, dict):
+                yield cap, "caption"
+
+
+def repair_text_from_deposit(record: dict, references, vocab=None) -> list:
+    """Repair the extraction's text damage in place. In every short text (titles,
+    publisher, conference, subjects, funders, affiliation names) a damaged word takes the
+    deposit's letters when a reference (the deposit's title or description) holds the
+    same words (repair_from_reference: lost accents, undecodable ligatures); a title that
+    lost a space takes the deposit title's spacing. With `vocab` (case-folded word
+    counts), an undecodable ligature (U+FFFD) left in any text, long texts and names
+    included, is filled with the letters that make a known word (repair_ligatures).
+    Returns the changes as (key, old, new)."""
+    changes = []
+    slots = list(_short_text_slots(record)) + (list(_long_text_slots(record)) if vocab is not None else [])
+    short = len(list(_short_text_slots(record)))
+    for i, (obj, key) in enumerate(slots):
+        v = obj.get(key)
+        if not isinstance(v, str) or not v.strip():
+            continue
+        new = (repair_from_reference(v, references) or v) if i < short else v
+        if key == "title" and references:
+            new = repair_title_spacing(new, references[0]) or new
+        if vocab is not None and _FFFD in new:
+            new = repair_ligatures(new, vocab)
+        if new != v:
+            obj[key] = new
+            changes.append((key, v, new))
+    return changes
 
 
 _TITLE_SECTION_HEADERS = frozenset({
@@ -1772,17 +2066,20 @@ def _title_str(entry):
 
 def replace_bad_llm_title(record: dict, deposit_title=None) -> bool:
     """Fall back to the DEPOSIT title when titles[0] (LLM) is clearly bad (a section-
-    header fragment or an abstract paragraph). Needs the raw deposit title passed in.
-    No-op unless the deposit title is itself reasonable, so a good LLM title is never
-    worsened and a bad/placeholder/missing deposit title never overwrites anything.
-    Idempotent."""
+    header fragment or an abstract paragraph), a template placeholder ("Main Poster
+    Title"), empty, or missing. Needs the raw deposit title passed in. No-op unless the
+    deposit title is itself reasonable, so a good LLM title is never worsened and a
+    bad/placeholder/missing deposit title never overwrites anything. Idempotent."""
     if not title_is_reasonable(deposit_title):
         return False
     titles = record.get("titles")
     if not isinstance(titles, list) or not titles:
-        return False
+        record["titles"] = [{"title": deposit_title.strip()}]
+        return True
     cur = _title_str(titles[0])
-    if not title_is_bad_llm(cur):
+    blank = not isinstance(cur, str) or not cur.strip()
+    placeholder = not blank and (cur.strip().lower() in _TITLE_PLACEHOLDERS or _is_placeholder(cur))
+    if not (blank or placeholder or title_is_bad_llm(cur)):
         return False
     new = deposit_title.strip()
     if cur is not None and new == cur:
@@ -2102,10 +2399,11 @@ _FUNDER_ACK_RE = re.compile(
     r"we (?:thank|acknowledge|are grateful|gratefully))\b", re.I)
 
 
-def drop_junk_funding(record: dict) -> bool:
-    """Clean fundingReferences[]. Drop an entry whose funderName is junk -- no letter, or
-    an acknowledgement sentence the LLM misread as a funder ("This study was supported by
-    ...") -- UNLESS it carries a funderIdentifier (a deposit-anchored funder is kept). Real
+def drop_junk_funding(record: dict, acknowledgements=True) -> bool:
+    """Clean fundingReferences[]. Drop an entry whose funderName is junk -- no letter, an
+    acknowledgement sentence the LLM misread as a funder ("This study was supported by
+    ..."; kept with `acknowledgements=False`, e.g. for a deposit's own funding statement),
+    or the poster's own title -- UNLESS it carries a funderIdentifier (a deposit-anchored funder is kept). Real
     funder names, even long official agency names, are kept (the signal is acknowledgement
     phrasing, not length). Also clears an awardNumber with no alphanumeric char (numeric
     grant numbers are kept). Idempotent."""
@@ -2114,13 +2412,17 @@ def drop_junk_funding(record: dict) -> bool:
         return False
     changed = False
     kept = []
+    titles = {_fold_with_map(_strip_html_formatting(t))[0] for t in (_title_str(e) for e in record.get("titles") or [])
+              if isinstance(t, str) and t.strip()}
     for fr in funds:
         if not isinstance(fr, dict):
             kept.append(fr)
             continue
         fn = fr.get("funderName")
         has_id = bool(fr.get("funderIdentifier"))
-        name_junk = isinstance(fn, str) and (not _has_letter(fn) or _FUNDER_ACK_RE.search(fn))
+        name_junk = isinstance(fn, str) and (not _has_letter(fn)
+                                             or (acknowledgements and _FUNDER_ACK_RE.search(fn))
+                                             or _fold_with_map(_strip_html_formatting(fn))[0] in titles)
         if name_junk and not has_id:
             changed = True
             continue

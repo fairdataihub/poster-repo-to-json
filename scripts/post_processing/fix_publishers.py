@@ -14,10 +14,12 @@ falls back to its repository, "Zenodo" or "Figshare". Two repairs, each optional
    conservative). A harmless merge ("The University of Sydney" -> "University of Sydney")
    is kept.
 2. --cache-dir (the DataCite cache of backfill_datacite_ror_affiliations.py): a Figshare
-   record whose publisher is the bare "Figshare" fallback takes the publisher registered
-   with its own Figshare DOI (one that carries its article id) when that is not Figshare
-   itself. Institutional portals
-   register their own name ("UL Research Institutes", "Loughborough University").
+   record on an institutional portal takes the publisher the portal registered with its
+   own Figshare DOI (one that carries its article id), with its identifier when DataCite
+   has one: the portal is the record's publisher ("UL Research Institutes",
+   "Loughborough University"), whatever organization the poster prints. A record on
+   figshare.com (registered as "figshare") keeps the poster's publisher, or "Figshare"
+   when the poster names none.
    Zenodo records are left alone: Zenodo registers every deposit as "Zenodo", so another
    DataCite publisher belongs to a different resource's DOI.
 
@@ -114,13 +116,11 @@ def deposit_doi(doi, rid):
 
 
 def registrant_publisher(d, src, rid, cache_dir, metadata_dir, stats):
-    """Name the DataCite-registered publisher of a Figshare record that fell back to
-    "Figshare". Returns (old, new) or None."""
+    """Name the publisher an institutional Figshare portal registered with DataCite for the
+    record's own DOI. Returns (old, new) or None."""
     if src != "figshare":
         return None
     cur = _name(d.get("publisher"))
-    if cur not in (None, "", "Figshare"):
-        return None
     doi = _doi_of(d)
     if not doi:
         stats["dc_no_doi"] += 1
@@ -139,14 +139,24 @@ def registrant_publisher(d, src, rid, cache_dir, metadata_dir, stats):
     if reg.casefold() in _GENERIC_REGISTRANTS:
         stats["dc_registrant_is_figshare"] += 1
         return None
-    d["publisher"] = {"name": reg}
+    pub = {"name": reg}
+    raw = attrs.get("publisher")
+    if isinstance(raw, dict) and raw.get("publisherIdentifier"):
+        pub.update({k: raw[k] for k in ("publisherIdentifier", "publisherIdentifierScheme", "schemeUri")
+                    if raw.get(k)})
+        if "schemeUri" in pub:
+            pub["schemeURI"] = pub.pop("schemeUri")
+    if d.get("publisher") == pub or (cur == reg and not isinstance(raw, dict)):
+        stats["portal_publisher_already"] += 1
+        return None
+    d["publisher"] = pub
     stats["publisher_from_datacite"] += 1
     return cur, reg
 
 
 _COUNTERS = ("scanned", "records_changed", "restored", "kept_source_says_it", "harmless_merge_kept",
              "kept_repository_fallback", "no_extraction_publisher", "extraction_publisher_is_junk",
-             "no_publisher", "publisher_from_datacite", "dc_registrant_is_figshare", "dc_no_doi",
+             "no_publisher", "publisher_from_datacite", "portal_publisher_already", "dc_registrant_is_figshare", "dc_no_doi",
              "dc_doi_not_the_deposit", "dc_not_cached", "dc_no_record", "dc_no_publisher", "errors")
 
 

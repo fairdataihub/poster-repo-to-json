@@ -83,10 +83,10 @@ def test_registrant_publisher_skips(tmp_path):
     cache = _cache(tmp_path, doi, "figshare")
     assert mod.registrant_publisher(d, "figshare", "1", cache, _meta(tmp_path, "1", doi), stats) is None
     assert stats["dc_registrant_is_figshare"] == 1
-    # a poster publisher from the extraction is never replaced
+    # on figshare.com the poster's own publisher stays
     d2 = {"publisher": {"name": "Library & Researcher Information Services"},
           "identifiers": [{"identifier": doi, "identifierType": "DOI"}]}
-    assert mod.registrant_publisher(d2, "figshare", "1", _cache(tmp_path, doi, "UL Research Institutes"), None, stats) is None
+    assert mod.registrant_publisher(d2, "figshare", "1", cache, None, stats) is None
     # the DOI is not the deposit's own (e.g. a published abstract's DOI)
     other = "10.1000/abstract.1"
     d3 = {"publisher": {"name": "Figshare"}, "identifiers": [{"identifier": other, "identifierType": "DOI"}]}
@@ -104,3 +104,18 @@ def test_deposit_doi_carries_the_article_id():
     assert mod.deposit_doi("10.17608/k6.auckland.10007483.v1", "10007483.v1")
     assert not mod.deposit_doi("10.1186/s12868-015-0001-1", "23431121")
     assert not mod.deposit_doi("10.6084/m9.figshare.127328098.v1", "27328098")
+
+
+def test_a_portal_record_takes_the_portal_publisher(tmp_path):
+    mod = _mod()
+    doi = "10.60752/102376.27063577.v1"
+    stats = Counter()
+    d = {"publisher": {"name": "Library & Researcher Information Services"},
+         "identifiers": [{"identifier": doi, "identifierType": "DOI"}]}
+    reg = {"name": "UL Research Institutes", "publisherIdentifier": "https://ror.org/045n75910",
+           "publisherIdentifierScheme": "ROR", "schemeUri": "https://ror.org/"}
+    cache = _cache(tmp_path, doi, reg)
+    assert mod.registrant_publisher(d, "figshare", "27063577", cache, None, stats) ==         ("Library & Researcher Information Services", "UL Research Institutes")
+    assert d["publisher"] == {"name": "UL Research Institutes", "publisherIdentifier": "https://ror.org/045n75910",
+                              "publisherIdentifierScheme": "ROR", "schemeURI": "https://ror.org/"}
+    assert mod.registrant_publisher(d, "figshare", "27063577", cache, None, stats) is None   # idempotent
